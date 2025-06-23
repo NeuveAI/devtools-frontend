@@ -1,0 +1,23 @@
+Name: DevTools MCP Server
+Short Name: mcp-server
+URL: https://modelcontextprotocol.io/
+Version: 1.0.0
+Date: 2025-06-20
+License: BSD-3-Clause
+License File: Not provided
+Security Critical: no
+Shipped: yes
+
+Description:
+Browser-compatible MCP (Model Context Protocol) server implementation for
+Chrome DevTools Timeline integration. This provides a simplified interface
+for exposing DevTools functionality through the MCP protocol, allowing AI
+assistants to interact with DevTools trace recording and analysis features.
+
+This is a custom implementation designed specifically for the DevTools browser
+context, not a direct dependency on the external MCP SDK.
+
+Local Modifications:
+- Created browser-compatible implementation without Node.js dependencies
+- Simplified to work within DevTools UI context
+- No external dependencies on the @modelcontextprotocol/sdk package

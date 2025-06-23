@@ -43,12 +43,15 @@ import * as Platform from '../../core/platform/platform.js';
 import * as Root from '../../core/root/root.js';
 import * as SDK from '../../core/sdk/sdk.js';
 import type * as Protocol from '../../generated/protocol.js';
+import { CallTreeContext } from '../../models/ai_assistance/ai_assistance.js';
 import * as CrUXManager from '../../models/crux-manager/crux-manager.js';
 import * as TextUtils from '../../models/text_utils/text_utils.js';
 import * as Trace from '../../models/trace/trace.js';
 import * as Workspace from '../../models/workspace/workspace.js';
 import * as TraceBounds from '../../services/trace_bounds/trace_bounds.js';
+import * as McpServer from '../../third_party/mcp-server/mcp-server.js';
 import * as Adorners from '../../ui/components/adorners/adorners.js';
+import type * as Buttons from '../../ui/components/buttons/buttons.js';
 import * as Dialogs from '../../ui/components/dialogs/dialogs.js';
 import * as LegacyWrapper from '../../ui/components/legacy_wrapper/legacy_wrapper.js';
 import * as PerfUI from '../../ui/legacy/components/perf_ui/perf_ui.js';
@@ -390,6 +393,10 @@ export class TimelinePanel extends Common.ObjectWrapper.eventMixin<EventTypes, t
   private fileSelectorElement?: HTMLInputElement;
   private selection: TimelineSelection|null = null;
   private traceLoadStart!: Trace.Types.Timing.Milli|null;
+
+  private mcpToggleButton!: UI.Toolbar.ToolbarButton;
+  private mcpServer: McpServer.DevToolsMcpServer|null = null;
+  private mcpEventListenerAdded = false;
 
   #traceEngineModel: Trace.TraceModel.Model;
   #sourceMapsResolver: Utils.SourceMapsResolver.SourceMapsResolver|null = null;
@@ -1091,6 +1098,14 @@ export class TimelinePanel extends Common.ObjectWrapper.eventMixin<EventTypes, t
 
     this.panelToolbar.appendToolbarItem(this.#historyManager.button());
     this.panelToolbar.appendSeparator();
+
+    // MCP Server
+    this.mcpToggleButton = new UI.Toolbar.ToolbarButton(
+        'Toggle MCP Server', 'pen-spark', undefined, 'timeline.toggle-mcp-server');
+    this.mcpToggleButton.addEventListener(UI.Toolbar.ToolbarButton.Events.CLICK, () => this.onMcpToggle());
+    this.panelToolbar.appendToolbarItem(this.mcpToggleButton);
+    this.panelToolbar.appendSeparator();
+    this.updateMcpButtonState();
 
     // View
     this.panelToolbar.appendSeparator();
@@ -1912,6 +1927,244 @@ export class TimelinePanel extends Common.ObjectWrapper.eventMixin<EventTypes, t
     this.recordingPageReload = true;
     void this.startRecording();
     Host.userMetrics.actionTaken(Host.UserMetrics.Action.TimelinePageReloadStarted);
+  }
+
+  async recordTrace(): Promise<void> {
+    if (this.state !== State.IDLE) {
+      return;
+    }
+
+    await this.toggleRecording();
+    this.recordingStarted();
+
+    setTimeout(async () => {
+      if (this.state === State.RECORDING) {
+        await this.stopRecording();
+      }
+    }, 20000);
+  }
+
+  getTraceData(): {
+    parsedTrace: Trace.Handlers.Types.ParsedTrace|null,
+    traceInsightsSets: Trace.Insights.Types.TraceInsightSets|null,
+    traceMetadata: Trace.Types.File.MetaData|null,
+    syntheticEventsManager: Trace.Helpers.SyntheticEvents.SyntheticEventsManager|null,
+  } {
+    console.log(`[TIMELINE] getTraceData: viewMode=${this.#viewMode.mode}`);
+    if (this.#viewMode.mode !== 'VIEWING_TRACE') {
+      return {
+        parsedTrace: null,
+        traceInsightsSets: null,
+        traceMetadata: null,
+        syntheticEventsManager: null,
+      };
+    }
+    const {traceIndex} = this.#viewMode;
+    const parsedTrace = this.#traceEngineModel.parsedTrace(traceIndex);
+    const traceMetadata = this.#traceEngineModel.metadata(traceIndex);
+    const syntheticEventsManager = this.#traceEngineModel.syntheticTraceEventsManager(traceIndex);
+
+    if (!parsedTrace || !syntheticEventsManager) {
+      // This should not happen, because you can only get into the
+      // VIEWING_TRACE viewMode if you have a valid trace index from the
+      // Trace Engine. If it does, let's bail back to the landing page.
+      console.error(`setModelForActiveTrace was called with an invalid trace index: ${traceIndex}`);
+      return {
+        parsedTrace: null,
+        traceInsightsSets: null,
+        traceMetadata: null,
+        syntheticEventsManager: null,
+      };
+    }
+
+    const traceInsightsSets = this.#traceEngineModel.traceInsights(traceIndex);
+
+    return {
+      parsedTrace,
+      traceInsightsSets,
+      traceMetadata,
+      syntheticEventsManager,
+    };
+  }
+
+  private async onMcpInsights(): Promise<string> {
+    const {parsedTrace, traceInsightsSets} = this.getTraceData();
+    console.log(`[TIMELINE] onMcpInsights: parsedTrace=${!!parsedTrace}, traceInsightsSets=${!!traceInsightsSets}`);
+    if (!parsedTrace || !traceInsightsSets) {
+      console.error('[TIMELINE] Missing trace data - no parsed trace or insights sets available');
+      return '';
+    }
+
+    console.log(`[TIMELINE] traceInsightsSets size: ${traceInsightsSets.size}`);
+    if (traceInsightsSets.size === 0) {
+      console.error('[TIMELINE] No insights sets available in traceInsightsSets');
+      return '';
+    }
+
+    const insights = traceInsightsSets.get(Array.from(traceInsightsSets.entries())[0][0]);
+    console.log(`[TIMELINE] insights available: ${!!insights}`);
+
+    const longestInteractionEvent =
+			insights?.model.InteractionToNextPaint
+				.longestInteractionEvent;
+
+    console.log(`[TIMELINE] longestInteractionEvent: ${!!longestInteractionEvent}`);
+		if (!longestInteractionEvent) {
+			console.error('[TIMELINE] No longest interaction event found');
+			return '';
+		}
+
+    const timerangeCallTree = Utils.AICallTree.AICallTree.fromTimeOnThread({
+			thread: {
+				pid: longestInteractionEvent.pid,
+				tid: longestInteractionEvent.tid,
+			},
+			bounds: {
+				min: longestInteractionEvent.ts,
+				max: (longestInteractionEvent.ts +
+					longestInteractionEvent.dur) as Trace.Types.Timing.Micro,
+				range: (longestInteractionEvent.ts +
+					longestInteractionEvent.dur) as Trace.Types.Timing.Micro,
+			},
+			parsedTrace,
+		});
+
+		if (!timerangeCallTree?.rootNode.event) {
+			throw new Error('Failed to create timerange call tree');
+		}
+
+		const aiCallTree = Utils.AICallTree.AICallTree.fromEvent(
+			timerangeCallTree.rootNode.event,
+			parsedTrace,
+		);
+
+		if (!aiCallTree) {
+			throw new Error('Failed to create AI call tree');
+		}
+
+    const callTreeContext = new CallTreeContext(aiCallTree);
+		const serializedData = callTreeContext.getItem()?.serialize();
+
+    if (!serializedData) {
+      throw new Error('Failed to serialize AI call tree');
+    }
+
+    return serializedData;
+  }
+
+  private async onMcpToggle(): Promise<void> {
+    try {
+      if (this.mcpServer?.isServerRunning()) {
+        await this.mcpServer.stop();
+        this.mcpServer = null;
+        UI.InspectorView.InspectorView.instance().displayReloadRequiredWarning('MCP Server stopped');
+      } else {
+        this.mcpServer = new McpServer.DevToolsMcpServer();
+
+        // For now, we'll use a mock HTTP endpoint since the actual SSE transport
+        // would require a backend server. In a real implementation, this would
+        // connect to the actual MCP server endpoint.
+        const httpEndpoint = 'http://localhost:3000';
+
+        const started = await this.mcpServer.start(httpEndpoint);
+        if (started) {
+          UI.InspectorView.InspectorView.instance().displayReloadRequiredWarning('MCP Server started');
+        } else {
+          UI.InspectorView.InspectorView.instance().displayReloadRequiredWarning('Failed to start MCP Server');
+          this.mcpServer = null;
+        }
+      }
+    } catch (error) {
+      console.error('MCP Server toggle failed:', error);
+      UI.InspectorView.InspectorView.instance().displayReloadRequiredWarning(
+        `MCP Server error: ${error instanceof Error ? error.message : String(error)}`);
+      this.mcpServer = null;
+    }
+    this.updateMcpButtonState();
+  }
+
+  private updateMcpButtonState(): void {
+    const isRunning = this.mcpServer?.isServerRunning();
+    this.mcpToggleButton.setTitle(isRunning ? 'Stop MCP Server' : 'Start MCP Server');
+    this.mcpToggleButton.setGlyph('pen-spark');
+    this.mcpToggleButton.toggled(Boolean(isRunning));
+
+    // Set up MCP event listeners when server starts
+    if (isRunning && !this.mcpEventListenerAdded) {
+      this.setupMcpEventListeners();
+      this.mcpEventListenerAdded = true;
+    } else if (!isRunning && this.mcpEventListenerAdded) {
+      this.removeMcpEventListeners();
+      this.mcpEventListenerAdded = false;
+    }
+  }
+
+  private onMcpStartRecording = async (event: Event): Promise<void> => {
+    const customEvent = event as CustomEvent;
+    const { traceId, duration } = customEvent.detail;
+    console.assert(traceId, 'MCP requesting timeline recording without traceId');
+
+    // Only start recording if we're in idle state
+    if (this.state === State.IDLE) {
+      await this.toggleRecording();
+
+      // Auto-stop recording after the specified duration
+      if (duration && duration > 0) {
+        setTimeout(async () => {
+          if (this.state === State.RECORDING) {
+            await this.stopRecording();
+            console.assert(traceId, `Auto-stopped timeline recording for trace: ${traceId}`);
+          }
+        }, duration);
+      }
+    } else {
+      console.warn('Cannot start MCP recording - timeline is not in idle state');
+    }
+  };
+
+  private onMcpStartInsights = async (event: Event): Promise<void> => {
+    const customEvent = event as CustomEvent;
+    const { insightId, analysisType } = customEvent.detail;
+    console.log(`[TIMELINE] MCP requesting insights generation: ${insightId}, type: ${analysisType}`);
+
+    try {
+      console.log(`[TIMELINE] Calling onMcpInsights() for ${insightId}`);
+      const insightsData = await this.onMcpInsights();
+      console.log(`[TIMELINE] Got insights data, length: ${insightsData.length} characters`);
+
+      // Send the insights result back via a custom event that the McpServer can listen to
+      const resultEvent = new CustomEvent('mcp-insights-result', {
+        detail: { insightId, result: insightsData, analysisType }
+      });
+      console.log(`[TIMELINE] Dispatching mcp-insights-result event for ${insightId}`);
+      document.dispatchEvent(resultEvent);
+
+      console.log(`[TIMELINE] Generated insights for ${insightId}: ${insightsData.length} characters`);
+    } catch (error) {
+      console.error('[TIMELINE] Failed to generate MCP insights:', error);
+
+      // Send error result back
+      const errorEvent = new CustomEvent('mcp-insights-result', {
+        detail: {
+          insightId,
+          result: `Error generating insights: ${error instanceof Error ? error.message : String(error)}`,
+          analysisType,
+          error: true
+        }
+      });
+      console.log(`[TIMELINE] Dispatching error mcp-insights-result event for ${insightId}`);
+      document.dispatchEvent(errorEvent);
+    }
+  };
+
+  private setupMcpEventListeners(): void {
+    document.addEventListener('mcp-start-recording', this.onMcpStartRecording);
+    document.addEventListener('mcp-start-insights', this.onMcpStartInsights);
+  }
+
+  private removeMcpEventListeners(): void {
+    document.removeEventListener('mcp-start-recording', this.onMcpStartRecording);
+    document.removeEventListener('mcp-start-insights', this.onMcpStartInsights);
   }
 
   private onClearButton(): void {
