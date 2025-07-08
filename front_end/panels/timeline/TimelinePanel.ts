@@ -1987,7 +1987,7 @@ export class TimelinePanel extends Common.ObjectWrapper.eventMixin<EventTypes, t
     };
   }
 
-  private async onMcpInsights(): Promise<string> {
+  private async onMcpInsights(insightType: 'animation-frame' | 'interaction' = 'interaction'): Promise<string> {
     const {parsedTrace, traceInsightsSets} = this.getTraceData();
     console.log(`[TIMELINE] onMcpInsights: parsedTrace=${!!parsedTrace}, traceInsightsSets=${!!traceInsightsSets}`);
     if (!parsedTrace || !traceInsightsSets) {
@@ -2014,42 +2014,87 @@ export class TimelinePanel extends Common.ObjectWrapper.eventMixin<EventTypes, t
 			return '';
 		}
 
-    const timerangeCallTree = Utils.AICallTree.AICallTree.fromTimeOnThread({
-			thread: {
-				pid: longestInteractionEvent.pid,
-				tid: longestInteractionEvent.tid,
-			},
-			bounds: {
-				min: longestInteractionEvent.ts,
-				max: (longestInteractionEvent.ts +
-					longestInteractionEvent.dur) as Trace.Types.Timing.Micro,
-				range: (longestInteractionEvent.ts +
-					longestInteractionEvent.dur) as Trace.Types.Timing.Micro,
-			},
-			parsedTrace,
-		});
+    const longestAnimationFrameEvent = parsedTrace.AnimationFrames.animationFrames.sort((a, b) => b.dur - a.dur)[0];
+    let timerangeCallTree: Utils.AICallTree.AICallTree|null = null;
+    if (insightType === 'interaction') {
+      timerangeCallTree = Utils.AICallTree.AICallTree.fromTimeOnThread({
+        thread: {
+          pid: longestInteractionEvent.pid,
+          tid: longestInteractionEvent.tid,
+        },
+        bounds: {
+          min: longestInteractionEvent.ts,
+          max: (longestInteractionEvent.ts +
+            longestInteractionEvent.dur) as Trace.Types.Timing.Micro,
+          range: (longestInteractionEvent.ts +
+            longestInteractionEvent.dur) as Trace.Types.Timing.Micro,
+        },
+        parsedTrace,
+      });
 
-		if (!timerangeCallTree?.rootNode.event) {
-			throw new Error('Failed to create timerange call tree');
-		}
+      if (!timerangeCallTree?.rootNode.event) {
+        throw new Error('Failed to create timerange call tree');
+      }
 
-		const aiCallTree = Utils.AICallTree.AICallTree.fromEvent(
-			timerangeCallTree.rootNode.event,
-			parsedTrace,
-		);
+      const aiCallTree = Utils.AICallTree.AICallTree.fromEvent(
+        timerangeCallTree.rootNode.event,
+        parsedTrace,
+      );
 
-		if (!aiCallTree) {
-			throw new Error('Failed to create AI call tree');
-		}
+      if (!aiCallTree) {
+        throw new Error('Failed to create AI call tree');
+      }
 
-    const callTreeContext = new CallTreeContext(aiCallTree);
-		const serializedData = callTreeContext.getItem()?.serialize();
+      const callTreeContext = new CallTreeContext(aiCallTree);
+      const serializedData = callTreeContext.getItem()?.serialize();
 
-    if (!serializedData) {
-      throw new Error('Failed to serialize AI call tree');
+      if (!serializedData) {
+        throw new Error('Failed to serialize AI call tree');
+      }
+
+      return serializedData;
     }
 
-    return serializedData;
+    if (insightType === 'animation-frame' && longestAnimationFrameEvent) {
+      timerangeCallTree = Utils.AICallTree.AICallTree.fromTimeOnThread({
+        thread: {
+          pid: longestAnimationFrameEvent.pid,
+          tid: longestAnimationFrameEvent.tid,
+        },
+        bounds: {
+          min: longestAnimationFrameEvent.ts,
+          max: (longestAnimationFrameEvent.ts +
+            longestAnimationFrameEvent.dur) as Trace.Types.Timing.Micro,
+          range: (longestAnimationFrameEvent.ts +
+            longestAnimationFrameEvent.dur) as Trace.Types.Timing.Micro,
+        },
+        parsedTrace,
+      });
+
+      if (!timerangeCallTree?.rootNode.event) {
+        throw new Error('Failed to create timerange call tree');
+      }
+
+      const aiCallTree = Utils.AICallTree.AICallTree.fromEvent(
+        timerangeCallTree.rootNode.event,
+        parsedTrace,
+      );
+
+      if (!aiCallTree) {
+        throw new Error('Failed to create AI call tree');
+      }
+
+      const callTreeContext = new CallTreeContext(aiCallTree);
+      const serializedData = callTreeContext.getItem()?.serialize();
+
+      if (!serializedData) {
+        throw new Error('Failed to serialize AI call tree');
+      }
+
+      return serializedData;
+    }
+
+    throw new Error('Invalid insight type');
   }
 
   private async onMcpToggle(): Promise<void> {
@@ -2124,17 +2169,17 @@ export class TimelinePanel extends Common.ObjectWrapper.eventMixin<EventTypes, t
 
   private onMcpStartInsights = async (event: Event): Promise<void> => {
     const customEvent = event as CustomEvent;
-    const { insightId, analysisType } = customEvent.detail;
-    console.log(`[TIMELINE] MCP requesting insights generation: ${insightId}, type: ${analysisType}`);
+    const { insightId, analysisType, insightType } = customEvent.detail;
+    console.log(`[TIMELINE] MCP requesting insights generation: ${insightId}, analysisType: ${analysisType}, insightType: ${insightType}`);
 
     try {
-      console.log(`[TIMELINE] Calling onMcpInsights() for ${insightId}`);
-      const insightsData = await this.onMcpInsights();
+      console.log(`[TIMELINE] Calling onMcpInsights(${insightType}) for ${insightId}`);
+      const insightsData = await this.onMcpInsights(insightType);
       console.log(`[TIMELINE] Got insights data, length: ${insightsData.length} characters`);
 
       // Send the insights result back via a custom event that the McpServer can listen to
       const resultEvent = new CustomEvent('mcp-insights-result', {
-        detail: { insightId, result: insightsData, analysisType }
+        detail: { insightId, result: insightsData, analysisType, insightType }
       });
       console.log(`[TIMELINE] Dispatching mcp-insights-result event for ${insightId}`);
       document.dispatchEvent(resultEvent);

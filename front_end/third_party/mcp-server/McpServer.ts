@@ -372,7 +372,7 @@ export class DevToolsMcpServer {
       console.log(`[MCP] Received insights/generate notification:`, message);
       const params = message.params as any;
       if (params?.insightId) {
-        await this.startInsightGeneration(params.insightId, params.analysisType);
+        await this.startInsightGeneration(params.insightId, params.analysisType, params.insightType);
       } else {
         console.log(`[MCP] No insightId in params:`, params);
       }
@@ -466,9 +466,9 @@ export class DevToolsMcpServer {
   }
 
   // Handle insight generation request from server
-  async startInsightGeneration(insightId: string, analysisType: string = 'performance'): Promise<void> {
+  async startInsightGeneration(insightId: string, analysisType: string = 'performance', insightType: 'animation-frame' | 'interaction' = 'interaction'): Promise<void> {
     // This will be called when the server requests insight generation
-    console.log(`[MCP] Starting insight generation: ${insightId}, type: ${analysisType}`);
+    console.log(`[MCP] Starting insight generation: ${insightId}, analysisType: ${analysisType}, insightType: ${insightType}`);
     
     // Set up listener for the result if not already set up
     if (!this.insightsResultListenerAdded) {
@@ -478,7 +478,7 @@ export class DevToolsMcpServer {
     
     // Emit a custom event that the TimelinePanel can listen to
     const event = new CustomEvent('mcp-start-insights', {
-      detail: { insightId, analysisType }
+      detail: { insightId, analysisType, insightType }
     });
     console.log(`[MCP] Dispatching mcp-start-insights event for ${insightId}`);
     document.dispatchEvent(event);

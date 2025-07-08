@@ -100,16 +100,18 @@ function createMcpServer(): McpServer {
     'get_insight',
     {
       title: 'Get Performance Insights',
-      description: 'Get performance insights from DevTools analysis data'
+      description: 'Get performance insights from DevTools analysis data. Use "interaction" for user interaction events and responsiveness issues, or "animation-frame" for general performance bottlenecks and frame rate issues.'
     },
-    async (input: { insightId?: string, analysisType?: string }) => {
+    async (input: { insightId?: string, analysisType?: string, insightType?: 'animation-frame' | 'interaction' }) => {
       const insightId = input.insightId || `insight-${Date.now()}`;
       const analysisType = input.analysisType || 'performance';
+      const insightType = input.insightType || 'interaction';
 
       const result = {
         success: true,
         insightId,
         type: analysisType,
+        insightType,
         message: 'Insight generation will be implemented',
         timestamp: Date.now(),
         recommendations: [],
@@ -148,7 +150,7 @@ const sessions = new Map<string, Session>();
 const pendingInsightsRequests = new Map<string, (result: string) => void>();
 
 // Helper function to send notifications only to McpServer sessions
-function sendNotificationToMcpServerSessions(notification: any): void {
+function sendNotificationToMcpServerSessions(notification: { jsonrpc: '2.0', method: string, params: Record<string, unknown> }): void {
   let mcpServerSessionsCount = 0;
   let sentCount = 0;
 
@@ -374,7 +376,7 @@ app.post('/mcp', async c => {
               },
               {
                 name: 'get_insight',
-                description: 'Get performance insights from DevTools analysis',
+                description: 'Get performance insights from DevTools analysis data. Use "interaction" for user interaction events and responsiveness issues, or "animation-frame" for general performance bottlenecks and frame rate issues.',
                 inputSchema: {
                   type: 'object',
                   properties: {
@@ -387,6 +389,12 @@ app.post('/mcp', async c => {
                       enum: ['performance', 'memory', 'network'],
                       description: 'Type of analysis to perform',
                       default: 'performance',
+                    },
+                    insightType: {
+                      type: 'string',
+                      enum: ['animation-frame', 'interaction'],
+                      description: 'Specific insight type: "interaction" for user interaction events and responsiveness issues, "animation-frame" for general performance bottlenecks and frame rate issues',
+                      default: 'interaction',
                     },
                   },
                 },
@@ -431,14 +439,15 @@ app.post('/mcp', async c => {
         } else if (toolName === 'get_insight') {
           const insightId = args.insightId || `insight-${Date.now()}`;
           const analysisType = args.analysisType || 'performance';
+          const insightType = args.insightType || 'interaction';
 
-          console.log(`[TRPC] Starting insight generation for ${insightId}, type: ${analysisType}`);
+          console.log(`[TRPC] Starting insight generation for ${insightId}, analysisType: ${analysisType}, insightType: ${insightType}`);
 
           // Send insights/generate notification to McpServer sessions via SSE
           sendNotificationToMcpServerSessions({
             jsonrpc: '2.0' as const,
             method: 'insights/generate',
-            params: { insightId, analysisType }
+            params: { insightId, analysisType, insightType }
           });
 
           console.log(`[TRPC] Sent notification for ${insightId}, waiting for response...`);
