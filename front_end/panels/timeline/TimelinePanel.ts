@@ -2109,7 +2109,7 @@ export class TimelinePanel extends Common.ObjectWrapper.eventMixin<EventTypes, t
         // For now, we'll use a mock HTTP endpoint since the actual SSE transport
         // would require a backend server. In a real implementation, this would
         // connect to the actual MCP server endpoint.
-        const httpEndpoint = 'http://localhost:3000';
+        const httpEndpoint = 'http://localhost:3001';
 
         const started = await this.mcpServer.start(httpEndpoint);
         if (started) {

@@ -278,7 +278,7 @@ export class DevToolsMcpServer {
   private isRunning = false;
   private requestId = 0;
   private pendingInsightsRequests = new Map<string, (result: string) => void>();
-  private trpcServerUrl = 'http://localhost:3000';
+  private trpcServerUrl = 'http://localhost:3001';
 
   constructor(name: string = 'devtools-server', version: string = '1.0.0') {
     this.serverInfo = { name, version };
