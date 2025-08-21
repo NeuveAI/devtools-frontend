@@ -151,3 +151,23 @@ export const enum InsightKeys {
   VIEWPORT = 'Viewport',
   MODERN_HTTP = 'ModernHTTP',
 }
+
+export const enum InsightTitles {
+  LCP_BREAKDOWN = 'LCP breakdown',
+  INP_BREAKDOWN = 'INP breakdown',
+  CLS_CULPRITS = 'Layout shift culprits',
+  THIRD_PARTIES = '3rd parties',
+  DOCUMENT_LATENCY = 'Document request latency',
+  DOM_SIZE = 'Optimize DOM size',
+  DUPLICATE_JAVASCRIPT = 'Duplicated JavaScript',
+  FONT_DISPLAY = 'Font display',
+  FORCED_REFLOW = 'Forced reflow',
+  IMAGE_DELIVERY = 'Improve image delivery',
+  LCP_DISCOVERY = 'LCP request discovery',
+  LEGACY_JAVASCRIPT = 'Legacy JavaScript',
+  NETWORK_DEPENDENCY_TREE = 'Network dependency tree',
+  RENDER_BLOCKING = 'Render blocking requests',
+  SLOW_CSS_SELECTOR = 'CSS Selector costs',
+  VIEWPORT = 'Optimize viewport for mobile',
+  MODERN_HTTP = 'Modern HTTP',
+}
