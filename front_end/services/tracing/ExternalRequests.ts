@@ -59,8 +59,13 @@ export async function getInsightAgentFocusToDebug(
   return {focus};
 }
 
+export const enum CallTreeSearchType {
+  LONGEST_ANIMATION_FRAME = 'longest_animation_frame',
+  INP_INTERACTION = 'inp_interaction',
+}
+
 export async function getCallTreeAgentFocusToDebug(
-    model: Trace.TraceModel.Model): Promise<CallTreeResponse> {
+    model: Trace.TraceModel.Model, searchType: CallTreeSearchType): Promise<CallTreeResponse> {
   const parsedTrace = model.parsedTrace();
   if (!parsedTrace) {
     return {
@@ -68,19 +73,36 @@ export async function getCallTreeAgentFocusToDebug(
     };
   }
 
-  const longestAnimationFrame = parsedTrace.AnimationFrames.animationFrames.sort((a, b) => {
-    return b.dur - a.dur;
-  })[0];
+  let event: Trace.Types.Events.Event|null = null;
+
+  switch (searchType) {
+    case CallTreeSearchType.LONGEST_ANIMATION_FRAME: {
+      event = parsedTrace.AnimationFrames.animationFrames.sort((a, b) => {
+        return b.dur - a.dur;
+      })[0];
+      break;
+    }
+    case CallTreeSearchType.INP_INTERACTION: {
+      event = parsedTrace.UserInteractions.longestInteractionEvent;
+      break;
+    }
+  }
+
+  if (!event) {
+    return {
+      error: `Could not find any event to debug for ${searchType}`,
+    };
+  }
 
   const callTree = TimelineUtils.AICallTree.AICallTree.fromTimeOnThread({
     thread: {
-      pid: longestAnimationFrame.pid,
-      tid: longestAnimationFrame.tid,
+      pid: event.pid,
+      tid: event.tid,
     },
     bounds: {
-      min: longestAnimationFrame.ts,
-      max: Trace.Types.Timing.Micro(longestAnimationFrame.ts + longestAnimationFrame.dur),
-      range: Trace.Types.Timing.Micro(longestAnimationFrame.ts + longestAnimationFrame.dur),
+      min: event.ts,
+      max: Trace.Types.Timing.Micro(event.ts + (event.dur ?? 0)),
+      range: Trace.Types.Timing.Micro(event.ts + (event.dur ?? 0)),
     },
     parsedTrace,
   });
