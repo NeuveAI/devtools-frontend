@@ -9,6 +9,10 @@ type InsightResponse = {
   focus: TimelineUtils.AIContext.AgentFocus,
 }|{error: string};
 
+type CallTreeResponse = {
+  focus: TimelineUtils.AIContext.AgentFocus,
+}|{error: string};
+
 /**
  * For an external request, get the insight to debug based on its user visible title.
  * Currently, this function makes some assumptions that in time we will need to
@@ -52,5 +56,41 @@ export async function getInsightAgentFocusToDebug(
 
   const insight = insights.model[matchingInsightKey];
   const focus = TimelineUtils.AIContext.AgentFocus.fromInsight(parsedTrace, insight, insights.bounds);
+  return {focus};
+}
+
+export async function getCallTreeAgentFocusToDebug(
+    model: Trace.TraceModel.Model): Promise<CallTreeResponse> {
+  const parsedTrace = model.parsedTrace();
+  if (!parsedTrace) {
+    return {
+      error: 'No trace has been recorded, so we cannot analyze any insights',
+    };
+  }
+
+  const longestAnimationFrame = parsedTrace.AnimationFrames.animationFrames.sort((a, b) => {
+    return b.dur - a.dur;
+  })[0];
+
+  const callTree = TimelineUtils.AICallTree.AICallTree.fromTimeOnThread({
+    thread: {
+      pid: longestAnimationFrame.pid,
+      tid: longestAnimationFrame.tid,
+    },
+    bounds: {
+      min: longestAnimationFrame.ts,
+      max: Trace.Types.Timing.Micro(longestAnimationFrame.ts + longestAnimationFrame.dur),
+      range: Trace.Types.Timing.Micro(longestAnimationFrame.ts + longestAnimationFrame.dur),
+    },
+    parsedTrace,
+  });
+
+  if (!callTree) {
+    return {
+      error: 'Could not find any call tree for the longest animation frame',
+    };
+  }
+
+  const focus = TimelineUtils.AIContext.AgentFocus.fromCallTree(callTree);
   return {focus};
 }
