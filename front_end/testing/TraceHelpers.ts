@@ -27,53 +27,6 @@ export class MockFlameChartDelegate implements PerfUI.FlameChart.FlameChartDeleg
   }
 }
 
-/**
- * @deprecated this will be removed once we have migrated from interaction tests for screenshots. Please use `renderFlameChartIntoDOM`.
- *
- * Draws a set of tracks track in the flame chart using the new system.
- * For this to work, every track that will be rendered must have a
- * corresponding track appender registered in the
- * CompatibilityTracksAppender.
- *
- * @param context The unit test context.
- * @param traceFileName The name of the trace file to be loaded into the
- * flame chart.
- * @param trackAppenderNames A Set with the names of the tracks to be
- * rendered. For example, Set("Timings").
- * @param expanded whether the track should be expanded
- * @param trackName optional param to filter tracks by their name.
- * @returns a flame chart element and its corresponding data provider.
- */
-export async function getMainFlameChartWithTracks(
-    context: Mocha.Context|null, traceFileName: string,
-    trackAppenderNames: Set<Timeline.CompatibilityTracksAppender.TrackAppenderName>, expanded: boolean,
-    trackName?: string): Promise<{
-  flameChart: PerfUI.FlameChart.FlameChart,
-  dataProvider: Timeline.TimelineFlameChartDataProvider.TimelineFlameChartDataProvider,
-}> {
-  await initializeGlobalVars();
-
-  // This function is used to load a component example.
-  const {parsedTrace} = await TraceLoader.traceEngine(context, traceFileName);
-  const entityMapper = new Timeline.Utils.EntityMapper.EntityMapper(parsedTrace);
-
-  const dataProvider = new Timeline.TimelineFlameChartDataProvider.TimelineFlameChartDataProvider();
-  dataProvider.setModel(parsedTrace, entityMapper);
-  const tracksAppender = dataProvider.compatibilityTracksAppenderInstance();
-  tracksAppender.setVisibleTracks(trackAppenderNames);
-  dataProvider.buildWithCustomTracksForTest(
-      {filterTracks: name => trackName ? name.includes(trackName) : true, expandTracks: _ => expanded});
-
-  const delegate = new MockFlameChartDelegate();
-  const flameChart = new PerfUI.FlameChart.FlameChart(dataProvider, delegate);
-  const minTime = Trace.Helpers.Timing.microToMilli(parsedTrace.Meta.traceBounds.min);
-  const maxTime = Trace.Helpers.Timing.microToMilli(parsedTrace.Meta.traceBounds.max);
-  flameChart.setWindowTimes(minTime, maxTime);
-  flameChart.markAsRoot();
-  flameChart.update();
-  return {flameChart, dataProvider};
-}
-
 export interface RenderFlameChartOptions {
   dataProvider: 'MAIN'|'NETWORK';
   /**
@@ -127,14 +80,12 @@ export async function renderFlameChartIntoDOM(context: Mocha.Context|null, optio
   const targetManager = SDK.TargetManager.TargetManager.instance({forceNew: true});
   const workspace = Workspace.Workspace.WorkspaceImpl.instance({forceNew: true});
   const resourceMapping = new Bindings.ResourceMapping.ResourceMapping(targetManager, workspace);
-  const debuggerWorkspaceBinding = Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding.instance({
+  const ignoreListManager = Workspace.IgnoreListManager.IgnoreListManager.instance({forceNew: true});
+  Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding.instance({
     forceNew: true,
     resourceMapping,
     targetManager,
-  });
-  Bindings.IgnoreListManager.IgnoreListManager.instance({
-    forceNew: true,
-    debuggerWorkspaceBinding,
+    ignoreListManager,
   });
 
   let parsedTrace: Trace.Handlers.Types.ParsedTrace|null = null;
@@ -277,34 +228,6 @@ export function getAllNodes(roots: Set<Trace.Helpers.TreeHelpers.TraceEntryNode>
     }
   }
   return allNodes;
-}
-
-/**
- * Gets the node with an id from a tree in a thread.
- * @see RendererHandler.ts
- */
-export function getNodeFor(
-    thread: Trace.Handlers.ModelHandlers.Renderer.RendererThread,
-    nodeId: Trace.Helpers.TreeHelpers.TraceEntryNodeId): Trace.Helpers.TreeHelpers.TraceEntryNode {
-  const tree = getTree(thread);
-
-  function findNode(
-      nodes: Set<Trace.Helpers.TreeHelpers.TraceEntryNode>|Trace.Helpers.TreeHelpers.TraceEntryNode[],
-      nodeId: Trace.Helpers.TreeHelpers.TraceEntryNodeId): Trace.Helpers.TreeHelpers.TraceEntryNode|undefined {
-    for (const node of nodes) {
-      const event = node.entry;
-      if (Trace.Types.Events.isProfileCall(event) && event.nodeId === nodeId) {
-        return node;
-      }
-      return findNode(node.children, nodeId);
-    }
-    return undefined;
-  }
-  const node = findNode(tree.roots, nodeId);
-  if (!node) {
-    assert(false, `Couldn't get the node with id ${nodeId} in thread ${thread.name}`);
-  }
-  return node;
 }
 
 /**
@@ -539,22 +462,15 @@ export function makeMockRendererHandlerData(
     threads: new Map([[tid as Trace.Types.Events.ThreadID, mockThread]]),
   };
 
-  const renderereEvents: Trace.Types.Events.RendererEvent[] = [];
-  for (const entry of entries) {
-    if (Trace.Types.Events.isRendererEvent(entry)) {
-      renderereEvents.push(entry);
-    }
-  }
-
   return {
     processes: new Map([[pid as Trace.Types.Events.ProcessID, mockProcess]]),
     compositorTileWorkers: new Map(),
     entryToNode,
-    allTraceEntries: renderereEvents,
     entityMappings: {
       entityByEvent: new Map(),
       eventsByEntity: new Map(),
       createdEntityCache: new Map(),
+      entityByUrlCache: new Map(),
     },
   };
 }
@@ -602,27 +518,6 @@ export function makeMockSamplesHandlerData(profileCalls: Trace.Types.Events.Synt
     profilesInProcess: new Map([[1 as Trace.Types.Events.ProcessID, profilesInThread]]),
     entryToNode,
   };
-}
-
-export function makeMockEntityData(events: Trace.Types.Events.Event[]): Trace.Handlers.Helpers.EntityMappings {
-  const eventsByEntity = new Map<Trace.Handlers.Helpers.Entity, Trace.Types.Events.Event[]>();
-  const entityByEvent = new Map<Trace.Types.Events.Event, Trace.Handlers.Helpers.Entity>();
-  const createdEntityCache = new Map<string, Trace.Handlers.Helpers.Entity>();
-
-  events.forEach(event => {
-    const entity = Trace.Handlers.Helpers.getEntityForEvent(event, createdEntityCache);
-    if (!entity) {
-      return;
-    }
-    if (eventsByEntity.has(entity)) {
-      const events = eventsByEntity.get(entity) ?? [];
-      events?.push(event);
-    } else {
-      eventsByEntity.set(entity, [event]);
-    }
-    entityByEvent.set(event, entity);
-  });
-  return {eventsByEntity, entityByEvent, createdEntityCache};
 }
 
 export class FakeFlameChartProvider implements PerfUI.FlameChart.FlameChartDataProvider {
@@ -698,8 +593,8 @@ export interface FlameChartWithFakeProviderOptions {
 
 /**
  * Renders a flame chart using a fake provider and mock delegate.
- * @param provider - The fake flame chart provider.
- * @param options - Optional parameters.  Includes windowTimes, an array specifying the minimum and maximum window times. Defaults to [0, 100].
+ * @param provider The fake flame chart provider.
+ * @param options Optional parameters.  Includes windowTimes, an array specifying the minimum and maximum window times. Defaults to [0, 100].
  * @returns A promise that resolves when the flame chart is rendered.
  */
 export async function renderFlameChartWithFakeProvider(
@@ -820,11 +715,11 @@ export function getBaseTraceParseModelData(overrides: Partial<ParsedTrace> = {})
       processes: new Map(),
       compositorTileWorkers: new Map(),
       entryToNode: new Map(),
-      allTraceEntries: [],
       entityMappings: {
         entityByEvent: new Map(),
         eventsByEntity: new Map(),
         createdEntityCache: new Map(),
+        entityByUrlCache: new Map(),
       },
     },
     Screenshots: {
@@ -848,13 +743,13 @@ export function getBaseTraceParseModelData(overrides: Partial<ParsedTrace> = {})
     NetworkRequests: {
       byId: new Map(),
       eventToInitiator: new Map(),
-      byOrigin: new Map(),
       byTime: [],
       webSocket: [],
       entityMappings: {
         entityByEvent: new Map(),
         eventsByEntity: new Map(),
         createdEntityCache: new Map(),
+        entityByUrlCache: new Map(),
       },
       linkPreconnectEvents: [],
     },
@@ -868,7 +763,9 @@ export function getBaseTraceParseModelData(overrides: Partial<ParsedTrace> = {})
       timestampEvents: [],
       measureTraceByTraceId: new Map(),
     },
-    LargestImagePaint: {lcpRequestByNavigationId: new Map()},
+    LargestImagePaint: {
+      lcpRequestByNavigationId: new Map(),
+    },
     LargestTextPaint: new Map(),
     AuctionWorklets: {
       worklets: new Map(),
@@ -887,6 +784,8 @@ export function getBaseTraceParseModelData(overrides: Partial<ParsedTrace> = {})
       paintImageByDrawLazyPixelRef: new Map(),
       paintImageForEvent: new Map(),
       paintImageEventForUrl: new Map(),
+      paintEventToCorrectedDisplaySize: new Map(),
+      didCorrectForHostDpr: false,
     },
     Initiators: {
       eventToInitiator: new Map(),
@@ -909,6 +808,7 @@ export function getBaseTraceParseModelData(overrides: Partial<ParsedTrace> = {})
     },
     SelectorStats: {
       dataForUpdateLayoutEvent: new Map(),
+      invalidatedNodeList: [],
     },
     Warnings: {
       perEvent: new Map(),
@@ -954,21 +854,17 @@ export function getEventOfType<T extends Trace.Types.Events.Event>(
  * errors.
  */
 export function setupIgnoreListManagerEnvironment(): {
-  ignoreListManager: Bindings.IgnoreListManager.IgnoreListManager,
+  ignoreListManager: Workspace.IgnoreListManager.IgnoreListManager,
 } {
   const targetManager = SDK.TargetManager.TargetManager.instance({forceNew: true});
   const workspace = Workspace.Workspace.WorkspaceImpl.instance({forceNew: true});
   const resourceMapping = new Bindings.ResourceMapping.ResourceMapping(targetManager, workspace);
-
-  const debuggerWorkspaceBinding = Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding.instance({
+  const ignoreListManager = Workspace.IgnoreListManager.IgnoreListManager.instance({forceNew: true});
+  Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding.instance({
     forceNew: true,
     resourceMapping,
     targetManager,
-  });
-
-  const ignoreListManager = Bindings.IgnoreListManager.IgnoreListManager.instance({
-    forceNew: true,
-    debuggerWorkspaceBinding,
+    ignoreListManager,
   });
 
   return {ignoreListManager};
@@ -987,4 +883,43 @@ export function microseconds(x: number): Trace.Types.Timing.Micro {
 
 export function milliseconds(x: number): Trace.Types.Timing.Milli {
   return Trace.Types.Timing.Milli(x);
+}
+
+export function getAllNetworkRequestsByHost(
+    networkRequests: Trace.Types.Events.SyntheticNetworkRequest[],
+    host: string): Trace.Types.Events.SyntheticNetworkRequest[] {
+  const reqs = networkRequests.filter(r => {
+    const parsedUrl = new URL(r.args.data.url);
+    return parsedUrl.host === host;
+  });
+
+  return reqs;
+}
+
+const allThreadEntriesForTraceCache = new WeakMap<Trace.Handlers.Types.ParsedTrace, Trace.Types.Events.Event[]>();
+
+/**
+ * A function to get a list of all thread entries that exist. This is
+ * reasonably expensive, so it's cached to avoid a huge impact on our test suite
+ * speed.
+ */
+export function allThreadEntriesInTrace(parsedTrace: Trace.Handlers.Types.ParsedTrace): Trace.Types.Events.Event[] {
+  const fromCache = allThreadEntriesForTraceCache.get(parsedTrace);
+  if (fromCache) {
+    return fromCache;
+  }
+
+  const allEvents: Trace.Types.Events.Event[] = [];
+
+  for (const process of parsedTrace.Renderer.processes.values()) {
+    for (const thread of process.threads.values()) {
+      for (const entry of thread.entries) {
+        allEvents.push(entry);
+      }
+    }
+  }
+
+  Trace.Helpers.Trace.sortTraceEventsInPlace(allEvents);
+  allThreadEntriesForTraceCache.set(parsedTrace, allEvents);
+  return allEvents;
 }

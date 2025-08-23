@@ -49,11 +49,11 @@ import type {Target} from './Target.js';
 
 const UIStrings = {
   /**
-   *@description Error message for when a script can't be loaded which had been previously
+   * @description Error message for when a script can't be loaded which had been previously
    */
   scriptRemovedOrDeleted: 'Script removed or deleted.',
   /**
-   *@description Error message when failing to load a script source text
+   * @description Error message when failing to load a script source text
    */
   unableToFetchScriptSource: 'Unable to fetch script source.',
 } as const;
@@ -291,11 +291,6 @@ export class Script implements TextUtils.ContentProvider.ContentProvider, FrameA
       }
     }
     return this.#contentPromise;
-  }
-
-  async requestContent(): Promise<TextUtils.ContentProvider.DeferredContent> {
-    const contentData = await this.requestContentData();
-    return TextUtils.ContentData.ContentData.asDeferredContent(contentData);
   }
 
   private async requestContentInternal(): Promise<TextUtils.ContentData.ContentDataOrError> {

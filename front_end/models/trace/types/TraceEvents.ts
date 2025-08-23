@@ -5,6 +5,7 @@
 import type * as Platform from '../../../core/platform/platform.js';
 import type * as Protocol from '../../../generated/protocol.js';
 
+import type {ExtensionTrackEntryPayloadDeeplink} from './Extensions.js';
 import type {Micro, Milli, Seconds, TraceWindowMicro} from './Timing.js';
 
 // Trace Events.
@@ -140,9 +141,13 @@ export interface Sample extends Event {
 /**
  * A fake trace event created to support CDP.Profiler.Profiles in the
  * trace engine.
+ *
+ * Do not extend the SyntheticBased interface because this one doesn't have a raw trace event but a raw cpu profile.
+ * Also we won't manage this event through SyntheticEventsManager.
  */
-export interface SyntheticCpuProfile extends Instant, SyntheticBased<Phase.INSTANT> {
+export interface SyntheticCpuProfile extends Complete {
   name: Name.CPU_PROFILE;
+  id: ProfileID;
   args: Args&{
     data: ArgsData & {
       cpuProfile: Protocol.Profiler.Profile,
@@ -740,6 +745,8 @@ export interface LargestContentfulPaintCandidate extends Mark {
       nodeId: Protocol.DOM.BackendNodeId,
       loadingAttr: string,
       type?: string,
+      // Landed in Chromium M140: crrev.com/c/6702010
+      nodeName?: string,
     },
   };
 }
@@ -763,6 +770,8 @@ export interface LargestTextPaintCandidate extends Mark {
       candidateIndex: number,
       // eslint-disable-next-line @typescript-eslint/naming-convention
       DOMNodeId: Protocol.DOM.BackendNodeId,
+      // Added in crbug.com/413284569
+      nodeName?: string,
     },
   };
 }
@@ -1201,6 +1210,7 @@ export function isScheduleStyleInvalidationTracking(event: Event): event is Sche
 
 export const enum StyleRecalcInvalidationReason {
   ANIMATION = 'Animation',
+  RELATED_STYLE_RULE = 'Related style rule',
 }
 
 export interface StyleRecalcInvalidationTracking extends Instant {
@@ -1231,6 +1241,8 @@ export interface StyleInvalidatorInvalidationTracking extends Instant {
       subtree: boolean,
       nodeName?: string,
       extraData?: string,
+      // eslint-disable-next-line @typescript-eslint/naming-convention
+      selectors?: Array<{selector: string, style_sheet_id: string}>,
     },
   };
 }
@@ -1285,6 +1297,9 @@ export interface ScheduleStyleRecalculation extends Instant {
   args: Args&{
     data: {
       frame: string,
+      reason?: StyleRecalcInvalidationReason,
+      subtree?: boolean,
+      nodeId?: Protocol.DOM.BackendNodeId,
     },
   };
 }
@@ -1347,6 +1362,7 @@ export interface AnimationFrame extends PairableAsync {
   name: Name.ANIMATION_FRAME;
   args?: AnimationFrameArgs;
 }
+
 export type AnimationFrameArgs = Args&{
   animation_frame_timing_info: {
     blocking_duration_ms: number,
@@ -1464,6 +1480,9 @@ export interface ConsoleTimeStamp extends Event {
       track?: string|number,
       trackGroup?: string|number,
       color?: string|number,
+      devtools?: {
+        link: ExtensionTrackEntryPayloadDeeplink,
+      },
       sampleTraceId?: number,
     },
   };
@@ -1484,8 +1503,9 @@ export interface UserTimingMeasure extends Event {
   };
 }
 
-/** ChromeFrameReporter args for PipelineReporter event.
-    Matching proto: https://source.chromium.org/chromium/chromium/src/+/main:third_party/perfetto/protos/perfetto/trace/track_event/chrome_frame_reporter.proto
+/**
+ * ChromeFrameReporter args for PipelineReporter event.
+ * Matching proto: https://source.chromium.org/chromium/chromium/src/+/main:third_party/perfetto/protos/perfetto/trace/track_event/chrome_frame_reporter.proto
  */
 /* eslint-disable @typescript-eslint/naming-convention */
 interface ChromeFrameReporter {
@@ -1494,11 +1514,15 @@ interface ChromeFrameReporter {
   /** The reason is set only if |state| is not |STATE_UPDATED_ALL|. */
   reason: FrameDropReason;
   frame_source: number;
-  /**  Identifies a BeginFrameArgs (along with the source_id).
-       See comments in components/viz/common/frame_sinks/begin_frame_args.h. */
+  /**
+   * Identifies a BeginFrameArgs (along with the source_id).
+   * See comments in components/viz/common/frame_sinks/begin_frame_args.h.
+   */
   frame_sequence: number;
-  /**  If this is a dropped frame (i.e. if |state| is set to |STATE_DROPPED| or
-       |STATE_PRESENTED_PARTIAL|), then indicates whether this frame impacts smoothness. */
+  /**
+   * If this is a dropped frame (i.e. if |state| is set to |STATE_DROPPED| or
+   * |STATE_PRESENTED_PARTIAL|), then indicates whether this frame impacts smoothness.
+   */
   affects_smoothness: boolean;
   /** The type of active scroll. */
   scroll_state: ScrollState;
@@ -1508,49 +1532,67 @@ interface ChromeFrameReporter {
   has_compositor_animation: boolean;
   /** If any touch-driven UX (not scroll) is active during this frame. */
   has_smooth_input_main: boolean;
-  /**  Whether the frame contained any missing content (i.e. whether there was
-       checkerboarding in the frame). */
+  /**
+   * Whether the frame contained any missing content (i.e. whether there was
+   * checkerboarding in the frame).
+   */
   has_missing_content: boolean;
   /** The id of layer_tree_host that the frame has been produced for. */
   layer_tree_host_id: number;
   /** If total latency of PipelineReporter exceeds a certain limit. */
   has_high_latency: boolean;
-  /**  Indicate if the frame is "FORKED" (i.e. a PipelineReporter event starts at
-       the same frame sequence as another PipelineReporter) or "BACKFILL"
-       (i.e. dropped frames when there are no partial compositor updates). */
+  /**
+   *  Indicate if the frame is "FORKED" (i.e. a PipelineReporter event starts at
+   * the same frame sequence as another PipelineReporter) or "BACKFILL"
+   * (i.e. dropped frames when there are no partial compositor updates).
+   */
   frame_type: FrameType;
-  /**  The breakdown stage of PipelineReporter that is most likely accountable for
-       high latency. */
+  /**
+   * The breakdown stage of PipelineReporter that is most likely accountable for
+   * high latency.
+   */
   high_latency_contribution_stage: string[];
 }
 const enum State {
   /** The frame did not have any updates to present. **/
   STATE_NO_UPDATE_DESIRED = 'STATE_NO_UPDATE_DESIRED',
-  /**  The frame presented all the desired updates (i.e. any updates requested
-       from both the compositor thread and main-threads were handled). **/
+  /**
+   * The frame presented all the desired updates (i.e. any updates requested
+   * from both the compositor thread and main-threads were handled). *
+   */
   STATE_PRESENTED_ALL = 'STATE_PRESENTED_ALL',
-  /**  The frame was presented with some updates, but also missed some updates
-       (e.g. missed updates from the main-thread, but included updates from the
-        compositor thread). **/
+  /**
+   *  The frame was presented with some updates, but also missed some updates
+   * (e.g. missed updates from the main-thread, but included updates from the
+   * compositor thread). *
+   */
   STATE_PRESENTED_PARTIAL = 'STATE_PRESENTED_PARTIAL',
-  /**  The frame was dropped, i.e. some updates were desired for the frame, but
-       was not presented. **/
+  /**
+   * The frame was dropped, i.e. some updates were desired for the frame, but
+   * was not presented. *
+   */
   STATE_DROPPED = 'STATE_DROPPED',
 }
 
 const enum FrameDropReason {
   REASON_UNSPECIFIED = 'REASON_UNSPECIFIED',
-  /**  Frame was dropped by the display-compositor.
-         The display-compositor may drop a frame some times (e.g. the frame missed
-        the deadline, or was blocked on surface-sync, etc.) **/
+  /**
+   *  Frame was dropped by the display-compositor.
+   * The display-compositor may drop a frame some times (e.g. the frame missed
+   * the deadline, or was blocked on surface-sync, etc.) *
+   */
   REASON_DISPLAY_COMPOSITOR = 'REASON_DISPLAY_COMPOSITOR',
-  /**  Frame was dropped because of the main-thread.
-         The main-thread may cause a frame to be dropped, e.g. if the main-thread
-        is running expensive javascript, or doing a lot of layout updates, etc. **/
+  /**
+   *  Frame was dropped because of the main-thread.
+   * The main-thread may cause a frame to be dropped, e.g. if the main-thread
+   * is running expensive javascript, or doing a lot of layout updates, etc. *
+   */
   REASON_MAIN_THREAD = 'REASON_MAIN_THREAD',
-  /**  Frame was dropped by the client compositor.
-         The client compositor can drop some frames too (e.g. attempting to
-         recover latency, missing the deadline, etc.). **/
+  /**
+   *  Frame was dropped by the client compositor.
+   * The client compositor can drop some frames too (e.g. attempting to
+   * recover latency, missing the deadline, etc.). *
+   */
   REASON_CLIENT_COMPOSITOR = 'REASON_CLIENT_COMPOSITOR',
 }
 
@@ -1867,17 +1909,19 @@ export function isDecodeImage(event: Event): event is DecodeImage {
   return event.name === Name.DECODE_IMAGE;
 }
 
+export const enum InvalidationEventType {
+  StyleInvalidatorInvalidationTracking = 'StyleInvalidatorInvalidationTracking',
+  StyleRecalcInvalidationTracking = 'StyleRecalcInvalidationTracking',
+}
+
 export interface SelectorTiming {
   'elapsed (us)': number;
-
   fast_reject_count: number;
-
   match_attempts: number;
   selector: string;
-
   style_sheet_id: string;
-
   match_count: number;
+  invalidation_count: number;
 }
 
 export enum SelectorTimingsKey {
@@ -1888,6 +1932,7 @@ export enum SelectorTimingsKey {
   MatchCount = 'match_count',
   Selector = 'selector',
   StyleSheetId = 'style_sheet_id',
+  InvalidationCount = 'invalidation_count',
 }
 
 export interface SelectorStats {
@@ -1944,7 +1989,7 @@ export interface Layout extends Complete {
   };
 }
 export function isLayout(event: Event): event is Layout {
-  return event.name === Name.LAYOUT;
+  return event.name === Name.LAYOUT && Boolean(event.args && 'beginData' in event.args);
 }
 export interface InvalidateLayout extends Instant {
   name: Name.INVALIDATE_LAYOUT;
@@ -2524,6 +2569,7 @@ export interface FireAnimationFrame extends Complete {
     },
   };
 }
+
 export function isFireAnimationFrame(event: Event): event is FireAnimationFrame {
   return event.name === Name.FIRE_ANIMATION_FRAME;
 }
@@ -2537,9 +2583,6 @@ export interface RequestAnimationFrame extends Instant {
       stackTrace?: CallFrame,
     },
   };
-}
-export function isRequestAnimationFrame(event: Event): event is RequestAnimationFrame {
-  return event.name === Name.REQUEST_ANIMATION_FRAME;
 }
 
 export interface TimerInstall extends Instant {
@@ -2583,6 +2626,7 @@ export interface RequestIdleCallback extends Instant {
 
   };
 }
+
 export function isRequestIdleCallback(event: Event): event is RequestIdleCallback {
   return event.name === Name.REQUEST_IDLE_CALLBACK;
 }
@@ -2649,10 +2693,6 @@ export interface WebSocketSend extends Instant {
   };
 }
 
-export function isWebSocketSend(event: Event): event is WebSocketSend {
-  return event.name === Name.WEB_SOCKET_SEND;
-}
-
 export interface WebSocketReceive extends Instant {
   name: Name.WEB_SOCKET_RECEIVE;
   args: Args&{
@@ -2664,9 +2704,6 @@ export interface WebSocketReceive extends Instant {
       workerId?: string,
     },
   };
-}
-export function isWebSocketReceive(event: Event): event is WebSocketReceive {
-  return event.name === Name.WEB_SOCKET_RECEIVE;
 }
 
 export interface WebSocketSendHandshakeRequest extends Instant {
@@ -3230,11 +3267,6 @@ export interface V8SourceRundownSourcesStubScriptCatchupEvent extends Event {
       scriptId: number,
     },
   };
-}
-
-export function isV8SourceRundownSourcesStubScriptCatchupEvent(event: Event):
-    event is V8SourceRundownSourcesStubScriptCatchupEvent {
-  return event.cat === 'disabled-by-default-devtools.v8-source-rundown-sources' && event.name === 'StubScriptCatchup';
 }
 
 export function isAnyScriptCatchupEvent(event: Event): event is V8SourceRundownSourcesScriptCatchupEvent|

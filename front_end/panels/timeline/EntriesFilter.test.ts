@@ -2,10 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Copyright 2023222 The Chromium Author2s. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
-
 import * as Trace from '../../models/trace/trace.js';
 import {describeWithEnvironment} from '../../testing/EnvironmentHelpers.js';
 import {getMainThread} from '../../testing/TraceHelpers.js';
@@ -34,7 +30,8 @@ describeWithEnvironment('EntriesFilter', function() {
   it('supports the user merging an entry into its parent', async function() {
     const {parsedTrace} = await TraceLoader.traceEngine(this, 'basic-stack.json.gz');
     const mainThread = getMainThread(parsedTrace.Renderer);
-    /** This stack looks roughly like so (with some events omitted):
+    /**
+     * This stack looks roughly like so (with some events omitted):
      * ======== basicStackOne ============
      * =========== basicTwo ==============
      * =========== basicThree ============
@@ -75,7 +72,8 @@ describeWithEnvironment('EntriesFilter', function() {
   it('adds the parent of the merged entry into the expandableEntries array', async function() {
     const {parsedTrace} = await TraceLoader.traceEngine(this, 'basic-stack.json.gz');
     const mainThread = getMainThread(parsedTrace.Renderer);
-    /** This stack looks roughly like so (with some events omitted):
+    /**
+     * This stack looks roughly like so (with some events omitted):
      * ======== basicStackOne ============
      * =========== basicTwo ==============
      * =========== basicThree ============
@@ -120,7 +118,8 @@ describeWithEnvironment('EntriesFilter', function() {
   it('adds the collapsed entry into the expandableEntries array', async function() {
     const {parsedTrace} = await TraceLoader.traceEngine(this, 'basic-stack.json.gz');
     const mainThread = getMainThread(parsedTrace.Renderer);
-    /** This stack looks roughly like so (with some events omitted):
+    /**
+     * This stack looks roughly like so (with some events omitted):
      * ======== basicStackOne ============
      * =========== basicTwo ==============
      * =========== basicThree ============
@@ -156,7 +155,8 @@ describeWithEnvironment('EntriesFilter', function() {
      async function() {
        const {parsedTrace} = await TraceLoader.traceEngine(this, 'two-functions-recursion.json.gz');
        const mainThread = getMainThread(parsedTrace.Renderer);
-       /** This stack looks roughly like so (with some events omitted):
+       /**
+        * This stack looks roughly like so (with some events omitted):
         * ======== onclick ============
         * =========== foo =============
         *               ==== foo2 =====
@@ -238,7 +238,8 @@ describeWithEnvironment('EntriesFilter', function() {
   it('supports collapsing an entry', async function() {
     const {parsedTrace} = await TraceLoader.traceEngine(this, 'basic-stack.json.gz');
     const mainThread = getMainThread(parsedTrace.Renderer);
-    /** This stack looks roughly like so (with some events omitted):
+    /**
+     * This stack looks roughly like so (with some events omitted):
      * ======== basicStackOne ============
      * =========== basicTwo ==============
      * =========== basicThree ============
@@ -291,7 +292,8 @@ describeWithEnvironment('EntriesFilter', function() {
   it('supports collapsing all repeating entries among descendants', async function() {
     const {parsedTrace} = await TraceLoader.traceEngine(this, 'two-functions-recursion.json.gz');
     const mainThread = getMainThread(parsedTrace.Renderer);
-    /** This stack looks roughly like so (with some events omitted):
+    /**
+     * This stack looks roughly like so (with some events omitted):
      * ======== onclick ============
      * =========== foo =============
      *               ==== foo2 =====
@@ -364,7 +366,8 @@ describeWithEnvironment('EntriesFilter', function() {
   it('supports undo all filter actions by applying context menu undo action', async function() {
     const {parsedTrace} = await TraceLoader.traceEngine(this, 'basic-stack.json.gz');
     const mainThread = getMainThread(parsedTrace.Renderer);
-    /** This stack looks roughly like so (with some events omitted):
+    /**
+     * This stack looks roughly like so (with some events omitted):
      * ======== basicStackOne ============
      * =========== basicTwo ==============
      * =========== basicThree ============
@@ -457,7 +460,8 @@ describeWithEnvironment('EntriesFilter', function() {
   it('supports resetting children of the closest expandable parent when a hidden entry is provided', async function() {
     const {parsedTrace} = await TraceLoader.traceEngine(this, 'basic-stack.json.gz');
     const mainThread = getMainThread(parsedTrace.Renderer);
-    /** This stack looks roughly like so (with some events omitted):
+    /**
+     * This stack looks roughly like so (with some events omitted):
      * ======== basicStackOne ============
      * =========== basicTwo ==============
      * =========== basicThree ============
@@ -523,7 +527,8 @@ describeWithEnvironment('EntriesFilter', function() {
   it('supports resetting all hidden children of a selected entry', async function() {
     const {parsedTrace} = await TraceLoader.traceEngine(this, 'two-functions-recursion.json.gz');
     const mainThread = getMainThread(parsedTrace.Renderer);
-    /** This stack looks roughly like so (with some events omitted):
+    /**
+     * This stack looks roughly like so (with some events omitted):
      * ======== onclick ============
      * =========== foo =============
      *               ==== foo2 =====
@@ -629,7 +634,8 @@ describeWithEnvironment('EntriesFilter', function() {
   it('correctly returns the amount of hidden children of a node', async function() {
     const {parsedTrace} = await TraceLoader.traceEngine(this, 'two-functions-recursion.json.gz');
     const mainThread = getMainThread(parsedTrace.Renderer);
-    /** This stack looks roughly like so (with some erlier events omitted):
+    /**
+     * This stack looks roughly like so (with some erlier events omitted):
      * ======== onclick ============
      * =========== foo =============
      *               ==== foo2 =====
@@ -670,7 +676,8 @@ describeWithEnvironment('EntriesFilter', function() {
   it('correctly assigns a visible parent to expandable entries if the direct parent is not visible', async function() {
     const {parsedTrace} = await TraceLoader.traceEngine(this, 'basic-stack.json.gz');
     const mainThread = getMainThread(parsedTrace.Renderer);
-    /** This stack looks roughly like so (with some events omitted):
+    /**
+     * This stack looks roughly like so (with some events omitted):
      * ======== Task ===============
      * ======== (anonymous) ========                  << entry with an invisible in the timeline direct parent. We need to make sure that we correctly add Task to the expandable entries
      * ======== RegisterFrameID ====

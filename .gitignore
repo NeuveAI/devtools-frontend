@@ -21,7 +21,6 @@
 /scripts/visualize_deps/out
 config.gypi
 /karma-coverage
-/interactions-coverage
 /perf-data
 npm-debug.log
 /scripts/protocol_typescript/*.js
@@ -29,6 +28,8 @@ npm-debug.log
 /scripts/ai_assistance/auto-run/data
 /scripts/ai_assistance/performance-trace-downloads
 /scripts/ai_assistance/auto-run/performance-trace-downloads
+# This folder is populated from the GCP bucket and managed by gclient sync.
+/scripts/ai_assistance/suite/outputs
 
 /build
 /buildtools

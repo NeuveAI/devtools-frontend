@@ -37,9 +37,9 @@ import {PageResourceLoader, type PageResourceLoadInitiator} from './PageResource
 
 const UIStrings = {
   /**
-   *@description Error message when failing to fetch a resource referenced in a source map
-   *@example {https://example.com/sourcemap.map} PH1
-   *@example {An error occurred} PH2
+   * @description Error message when failing to fetch a resource referenced in a source map
+   * @example {https://example.com/sourcemap.map} PH1
+   * @example {An error occurred} PH2
    */
   couldNotLoadContentForSS: 'Could not load content for {PH1} ({PH2})',
 } as const;
@@ -66,11 +66,6 @@ export class CompilerSourceMappingContentProvider implements TextUtils.ContentPr
 
   contentType(): Common.ResourceType.ResourceType {
     return this.#contentTypeInternal;
-  }
-
-  async requestContent(): Promise<TextUtils.ContentProvider.DeferredContent> {
-    const contentData = await this.requestContentData();
-    return TextUtils.ContentData.ContentData.asDeferredContent(contentData);
   }
 
   async requestContentData(): Promise<TextUtils.ContentData.ContentDataOrError> {

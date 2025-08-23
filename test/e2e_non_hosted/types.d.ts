@@ -42,6 +42,16 @@ declare global {
     export interface HookFunction {
       (fn: E2E.SuiteSettings): void;
     }
+    export interface Context {
+      before: undefined;
+      after: undefined;
+      beforeEach: undefined;
+      afterEach: undefined;
+    }
+
+    export interface Test {
+      realDuration?: number;
+    }
   }
   namespace E2E {
     export type HarnessSettings = BrowserSettings&DevtoolsSettings;

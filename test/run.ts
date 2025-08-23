@@ -5,7 +5,6 @@
 import * as childProcess from 'child_process';
 import * as fs from 'fs';
 import * as glob from 'glob';
-import * as os from 'os';
 import * as path from 'path';
 import yargs from 'yargs';
 import unparse from 'yargs-unparser';
@@ -50,7 +49,7 @@ const options = commandLineArgs(yargs(process.argv.slice(2)))
                       type: 'string',
                       desc: 'Path to the test suite, starting from out/Target/gen directory.',
                       normalize: true,
-                      default: ['front_end', 'test/e2e', 'test/interactions', 'test/e2e_non_hosted'].map(
+                      default: ['front_end', 'test/e2e', 'test/e2e_non_hosted'].map(
                           f => path.relative(process.cwd(), path.join(SOURCE_ROOT, f))),
                     })
                     .strict()
@@ -104,10 +103,10 @@ function ninja(stdio: 'inherit'|'pipe', ...args: string[]) {
     }
     buildRoot = parent;
   }
-  const ninjaCommand = os.platform() === 'win32' ? 'autoninja.bat' : 'autoninja';
   // autoninja can't always find ninja if not run from the checkout root, so
   // run it from there and pass the build root as an argument.
-  const result = runProcess(ninjaCommand, ['-C', buildRoot, ...args], {encoding: 'utf-8', cwd: CHECKOUT_ROOT, stdio});
+  const result =
+      runProcess('autoninja', ['-C', buildRoot, ...args], {encoding: 'utf-8', shell: true, cwd: CHECKOUT_ROOT, stdio});
   if (result.error) {
     throw result.error;
   }
@@ -221,7 +220,16 @@ class ScriptsMochaTests extends Tests {
   override run(tests: PathPair[]) {
     return super.run(
         tests.map(test => ScriptPathPair.getFromPair(test)),
-        ['--experimental-strip-types', '--no-warnings=ExperimentalWarning', MOCHA_BIN_PATH, '--extension=ts,js'],
+        [
+          '--experimental-strip-types',
+          '--no-warnings=ExperimentalWarning',
+          MOCHA_BIN_PATH,
+          // Some test require spinning up a TypeScript
+          // typechecking service which take some time on
+          // the first test. We set 2 x Default(2000)
+          '--timeout=4000',
+          '--extension=ts,js',
+        ],
     );
   }
 
@@ -249,7 +257,6 @@ function main() {
   const tests: string[] = typeof options['tests'] === 'string' ? [options['tests']] : options['tests'];
   const testKinds = [
     new KarmaTests(path.join(GEN_DIR, 'front_end'), path.join(GEN_DIR, 'inspector_overlay')),
-    new MochaTests(path.join(GEN_DIR, 'test/interactions')),
     new MochaTests(path.join(GEN_DIR, 'test/e2e')),
     new NonHostedMochaTests(path.join(GEN_DIR, 'test/e2e_non_hosted')),
     new MochaTests(path.join(GEN_DIR, 'test/perf')),

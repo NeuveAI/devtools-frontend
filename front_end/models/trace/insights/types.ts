@@ -94,6 +94,8 @@ export type InsightModel<UIStrings extends Record<string, string> = Record<strin
        * If this insight is attached to a navigation, this stores its ID.
        */
       navigationId?: string,
+      /** This is lazily-generated because some insights may create many overlays. */
+      createOverlays?: () => Types.Overlays.Overlay[],
     };
 
 export type PartialInsightModel<T> =
@@ -131,8 +133,8 @@ export type InsightModels = {
 export type TraceInsightSets = Map<Types.Events.NavigationId, InsightSet>;
 
 export const enum InsightKeys {
-  LCP_PHASES = 'LCPPhases',
-  INTERACTION_TO_NEXT_PAINT = 'InteractionToNextPaint',
+  LCP_BREAKDOWN = 'LCPBreakdown',
+  INP_BREAKDOWN = 'INPBreakdown',
   CLS_CULPRITS = 'CLSCulprits',
   THIRD_PARTIES = 'ThirdParties',
   DOCUMENT_LATENCY = 'DocumentLatency',
@@ -147,4 +149,25 @@ export const enum InsightKeys {
   RENDER_BLOCKING = 'RenderBlocking',
   SLOW_CSS_SELECTOR = 'SlowCSSSelector',
   VIEWPORT = 'Viewport',
+  MODERN_HTTP = 'ModernHTTP',
+}
+
+export const enum InsightTitles {
+  LCP_BREAKDOWN = 'LCP breakdown',
+  INP_BREAKDOWN = 'INP breakdown',
+  CLS_CULPRITS = 'Layout shift culprits',
+  THIRD_PARTIES = '3rd parties',
+  DOCUMENT_LATENCY = 'Document request latency',
+  DOM_SIZE = 'Optimize DOM size',
+  DUPLICATE_JAVASCRIPT = 'Duplicated JavaScript',
+  FONT_DISPLAY = 'Font display',
+  FORCED_REFLOW = 'Forced reflow',
+  IMAGE_DELIVERY = 'Improve image delivery',
+  LCP_DISCOVERY = 'LCP request discovery',
+  LEGACY_JAVASCRIPT = 'Legacy JavaScript',
+  NETWORK_DEPENDENCY_TREE = 'Network dependency tree',
+  RENDER_BLOCKING = 'Render blocking requests',
+  SLOW_CSS_SELECTOR = 'CSS Selector costs',
+  VIEWPORT = 'Optimize viewport for mobile',
+  MODERN_HTTP = 'Modern HTTP',
 }

@@ -15,11 +15,11 @@ import {
 
 const UIStrings = {
   /**
-   *@description Title for HTTP Message Signatures specification url
+   * @description Title for HTTP Message Signatures specification url
    */
   httpMessageSignatures: 'HTTP Message Signatures (RFC9421)',
   /**
-   *@description Title for Signature-based Integrity specification url
+   * @description Title for Signature-based Integrity specification url
    */
   signatureBasedIntegrity: 'Signature-based Integrity',
 } as const;
@@ -83,7 +83,7 @@ export class SRIMessageSignatureIssue extends Issue<string> {
     }
     if (this.#issueDetails.error === Protocol.Audits.SRIMessageSignatureError.ValidationFailedIntegrityMismatch) {
       description.substitutions?.set('PLACEHOLDER_integrityAssertions', () => {
-        const prefix = '\n<li>';
+        const prefix = '\n* ';
         return prefix + this.details().integrityAssertions.join(prefix);
       });
     }

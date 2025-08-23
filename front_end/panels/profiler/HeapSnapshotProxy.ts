@@ -36,8 +36,8 @@ import type {ChildrenProvider} from './ChildrenProvider.js';
 
 const UIStrings = {
   /**
-   *@description Text in Heap Snapshot Proxy of a profiler tool
-   *@example {functionName} PH1
+   * @description Text in Heap Snapshot Proxy of a profiler tool
+   * @example {functionName} PH1
    */
   anErrorOccurredWhenACallToMethod: 'An error occurred when a call to method \'\'{PH1}\'\' was requested',
 } as const;
@@ -244,10 +244,6 @@ export class HeapSnapshotProxyObject {
 
   dispose(): void {
     this.worker.disposeObject(this.objectId);
-  }
-
-  disposeWorker(): void {
-    this.worker.dispose();
   }
 
   callFactoryMethod<T extends Object>(methodName: string, proxyConstructor: new(...arg1: any[]) => T, ...args: any[]):

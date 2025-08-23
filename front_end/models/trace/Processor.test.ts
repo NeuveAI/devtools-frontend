@@ -271,6 +271,10 @@ describeWithEnvironment('TraceProcessor', function() {
             generateInsight: () => {
               throw new Error('forced error');
             },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            createOverlays: (() => {}) as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            createOverlayForRequest: (() => {}) as any,
           },
         };
       });
@@ -382,8 +386,8 @@ describeWithEnvironment('TraceProcessor', function() {
         'Viewport',
         'Cache',
         'ImageDelivery',
-        'InteractionToNextPaint',
-        'LCPPhases',
+        'INPBreakdown',
+        'LCPBreakdown',
         'LCPDiscovery',
         'RenderBlocking',
         'NetworkDependencyTree',
@@ -405,8 +409,8 @@ describeWithEnvironment('TraceProcessor', function() {
         'CLSCulprits',
         'Cache',
         'ImageDelivery',
-        'InteractionToNextPaint',
-        'LCPPhases',
+        'INPBreakdown',
+        'LCPBreakdown',
         'LCPDiscovery',
         'RenderBlocking',
         'NetworkDependencyTree',

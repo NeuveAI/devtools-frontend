@@ -92,20 +92,32 @@ export class DOMNode {
   internalSubset?: string;
   name?: string;
   value?: string;
+  /**
+   * Set when a DOMNode is retained in a detached sub-tree.
+   */
+  retained = false;
+  /**
+   * Set if a DOMNode is a root of a detached sub-tree.
+   */
+  detached = false;
+  #retainedNodes?: Set<Protocol.DOM.BackendNodeId>;
 
   constructor(domModel: DOMModel) {
     this.#domModelInternal = domModel;
     this.#agent = this.#domModelInternal.getAgent();
   }
 
-  static create(domModel: DOMModel, doc: DOMDocument|null, isInShadowTree: boolean, payload: Protocol.DOM.Node):
-      DOMNode {
+  static create(
+      domModel: DOMModel, doc: DOMDocument|null, isInShadowTree: boolean, payload: Protocol.DOM.Node,
+      retainedNodes?: Set<Protocol.DOM.BackendNodeId>): DOMNode {
     const node = new DOMNode(domModel);
-    node.init(doc, isInShadowTree, payload);
+    node.init(doc, isInShadowTree, payload, retainedNodes);
     return node;
   }
 
-  init(doc: DOMDocument|null, isInShadowTree: boolean, payload: Protocol.DOM.Node): void {
+  init(
+      doc: DOMDocument|null, isInShadowTree: boolean, payload: Protocol.DOM.Node,
+      retainedNodes?: Set<Protocol.DOM.BackendNodeId>): void {
     this.#agent = this.#domModelInternal.getAgent();
     this.ownerDocument = doc;
     this.#isInShadowTreeInternal = isInShadowTree;
@@ -124,6 +136,11 @@ export class DOMNode {
     this.#xmlVersion = payload.xmlVersion;
     this.#isSVGNodeInternal = Boolean(payload.isSVG);
     this.#isScrollableInternal = Boolean(payload.isScrollable);
+    this.#retainedNodes = retainedNodes;
+
+    if (this.#retainedNodes?.has(this.backendNodeId())) {
+      this.retained = true;
+    }
 
     if (payload.attributes) {
       this.setAttributesPayload(payload.attributes);
@@ -133,7 +150,7 @@ export class DOMNode {
     if (payload.shadowRoots) {
       for (let i = 0; i < payload.shadowRoots.length; ++i) {
         const root = payload.shadowRoots[i];
-        const node = DOMNode.create(this.#domModelInternal, this.ownerDocument, true, root);
+        const node = DOMNode.create(this.#domModelInternal, this.ownerDocument, true, root, retainedNodes);
         this.shadowRootsInternal.push(node);
         node.parentNode = this;
       }
@@ -141,7 +158,7 @@ export class DOMNode {
 
     if (payload.templateContent) {
       this.templateContentInternal =
-          DOMNode.create(this.#domModelInternal, this.ownerDocument, true, payload.templateContent);
+          DOMNode.create(this.#domModelInternal, this.ownerDocument, true, payload.templateContent, retainedNodes);
       this.templateContentInternal.parentNode = this;
       this.childrenInternal = [];
     }
@@ -159,7 +176,7 @@ export class DOMNode {
 
     if (payload.importedDocument) {
       this.#importedDocumentInternal =
-          DOMNode.create(this.#domModelInternal, this.ownerDocument, true, payload.importedDocument);
+          DOMNode.create(this.#domModelInternal, this.ownerDocument, true, payload.importedDocument, retainedNodes);
       this.#importedDocumentInternal.parentNode = this;
       this.childrenInternal = [];
     }
@@ -233,6 +250,7 @@ export class DOMNode {
     return [
       Protocol.DOM.PseudoType.ViewTransition,
       Protocol.DOM.PseudoType.ViewTransitionGroup,
+      Protocol.DOM.PseudoType.ViewTransitionGroupChildren,
       Protocol.DOM.PseudoType.ViewTransitionImagePair,
       Protocol.DOM.PseudoType.ViewTransitionOld,
       Protocol.DOM.PseudoType.ViewTransitionNew,
@@ -361,6 +379,7 @@ export class DOMNode {
     return [
       ...this.#pseudoElements.get(Protocol.DOM.PseudoType.ViewTransition) || [],
       ...this.#pseudoElements.get(Protocol.DOM.PseudoType.ViewTransitionGroup) || [],
+      ...this.#pseudoElements.get(Protocol.DOM.PseudoType.ViewTransitionGroupChildren) || [],
       ...this.#pseudoElements.get(Protocol.DOM.PseudoType.ViewTransitionImagePair) || [],
       ...this.#pseudoElements.get(Protocol.DOM.PseudoType.ViewTransitionOld) || [],
       ...this.#pseudoElements.get(Protocol.DOM.PseudoType.ViewTransitionNew) || [],
@@ -546,8 +565,8 @@ export class DOMNode {
     return response.getError() ? null : this.childrenInternal;
   }
 
-  async getOuterHTML(): Promise<string|null> {
-    const {outerHTML} = await this.#agent.invoke_getOuterHTML({nodeId: this.id});
+  async getOuterHTML(includeShadowDOM = false): Promise<string|null> {
+    const {outerHTML} = await this.#agent.invoke_getOuterHTML({nodeId: this.id, includeShadowDOM});
     return outerHTML;
   }
 
@@ -667,7 +686,8 @@ export class DOMNode {
     if (!this.childrenInternal) {
       throw new Error('DOMNode._children is expected to not be null.');
     }
-    const node = DOMNode.create(this.#domModelInternal, this.ownerDocument, this.#isInShadowTreeInternal, payload);
+    const node = DOMNode.create(
+        this.#domModelInternal, this.ownerDocument, this.#isInShadowTreeInternal, payload, this.#retainedNodes);
     this.childrenInternal.splice(prev ? this.childrenInternal.indexOf(prev) + 1 : 0, 0, node);
     this.renumber();
     return node;
@@ -708,7 +728,8 @@ export class DOMNode {
     this.childrenInternal = [];
     for (let i = 0; i < payloads.length; ++i) {
       const payload = payloads[i];
-      const node = DOMNode.create(this.#domModelInternal, this.ownerDocument, this.#isInShadowTreeInternal, payload);
+      const node = DOMNode.create(
+          this.#domModelInternal, this.ownerDocument, this.#isInShadowTreeInternal, payload, this.#retainedNodes);
       this.childrenInternal.push(node);
     }
     this.renumber();
@@ -720,8 +741,8 @@ export class DOMNode {
     }
 
     for (let i = 0; i < payloads.length; ++i) {
-      const node =
-          DOMNode.create(this.#domModelInternal, this.ownerDocument, this.#isInShadowTreeInternal, payloads[i]);
+      const node = DOMNode.create(
+          this.#domModelInternal, this.ownerDocument, this.#isInShadowTreeInternal, payloads[i], this.#retainedNodes);
       node.parentNode = this;
       const pseudoType = node.pseudoType();
       if (!pseudoType) {
@@ -1621,9 +1642,10 @@ export class DOMModel extends SDKModel<EventTypes> {
 
   async getContainerForNode(
       nodeId: Protocol.DOM.NodeId, containerName?: string, physicalAxes?: Protocol.DOM.PhysicalAxes,
-      logicalAxes?: Protocol.DOM.LogicalAxes, queriesScrollState?: boolean): Promise<DOMNode|null> {
+      logicalAxes?: Protocol.DOM.LogicalAxes, queriesScrollState?: boolean,
+      queriesAnchored?: boolean): Promise<DOMNode|null> {
     const {nodeId: containerNodeId} = await this.agent.invoke_getContainerForNode(
-        {nodeId, containerName, physicalAxes, logicalAxes, queriesScrollState});
+        {nodeId, containerName, physicalAxes, logicalAxes, queriesScrollState, queriesAnchored});
     if (!containerNodeId) {
       return null;
     }

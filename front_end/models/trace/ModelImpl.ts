@@ -30,7 +30,6 @@ export interface ParseConfig {
  **/
 export class Model extends EventTarget {
   readonly #traces: ParsedTraceFile[] = [];
-  readonly #syntheticEventsManagerByTrace: Helpers.SyntheticEvents.SyntheticEventsManager[] = [];
   readonly #nextNumberByDomain = new Map<string, number>();
 
   readonly #recordingsAvailable: string[] = [];
@@ -78,7 +77,6 @@ export class Model extends EventTarget {
    * // Awaiting the parse method() to block until parsing complete
    * await this.traceModel.parse(events);
    * const data = this.traceModel.parsedTrace(0)
-   *
    * @example
    * // Using an event listener to be notified when tracing is complete.
    * this.traceModel.addEventListener(Trace.ModelUpdateEvent.eventName, (event) => {
@@ -108,23 +106,35 @@ export class Model extends EventTarget {
       metadata,
       parsedTrace: null,
       traceInsights: null,
+      syntheticEventsManager: Helpers.SyntheticEvents.SyntheticEventsManager.createAndActivate(traceEvents),
     };
 
     try {
       // Wait for all outstanding promises before finishing the async execution,
       // but perform all tasks in parallel.
-      const syntheticEventsManager = Helpers.SyntheticEvents.SyntheticEventsManager.createAndActivate(traceEvents);
-      await this.#processor.parse(traceEvents, {
+      const parseConfig: Types.Configuration.ParseOptions = {
         isFreshRecording,
         isCPUProfile,
         metadata,
         resolveSourceMap: config?.resolveSourceMap,
-      });
+      };
+      if (window.location.href.includes('devtools/bundled') || window.location.search.includes('debugFrontend')) {
+        // Someone is debugging DevTools, enable the logger.
+        const times: Record<string, number> = {};
+        parseConfig.logger = {
+          start(id) {
+            times[id] = performance.now();
+          },
+          end(id) {
+            performance.measure(id, {start: times[id]});
+          },
+        };
+      }
+      await this.#processor.parse(traceEvents, parseConfig);
       this.#storeParsedFileData(file, this.#processor.parsedTrace, this.#processor.insights);
       // We only push the file onto this.#traces here once we know it's valid
       // and there's been no errors in the parsing.
       this.#traces.push(file);
-      this.#syntheticEventsManagerByTrace.push(syntheticEventsManager);
     } catch (e) {
       throw e;
     } finally {
@@ -186,7 +196,7 @@ export class Model extends EventTarget {
 
   syntheticTraceEventsManager(index: number = this.#traces.length - 1): Helpers.SyntheticEvents.SyntheticEventsManager
       |null {
-    return this.#syntheticEventsManagerByTrace.at(index) ?? null;
+    return this.#traces.at(index)?.syntheticEventsManager ?? null;
   }
 
   size(): number {
@@ -215,6 +225,7 @@ export class Model extends EventTarget {
 export type ParsedTraceFile = Types.File.TraceFile&{
   parsedTrace: Handlers.Types.ParsedTrace | null,
   traceInsights: Insights.Types.TraceInsightSets | null,
+  syntheticEventsManager: Helpers.SyntheticEvents.SyntheticEventsManager,
 };
 
 export const enum ModelUpdateType {

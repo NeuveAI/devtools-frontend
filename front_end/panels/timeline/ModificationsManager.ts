@@ -9,8 +9,7 @@ import * as TimelineComponents from '../../panels/timeline/components/components
 
 import * as AnnotationHelpers from './AnnotationHelpers.js';
 import {EntriesFilter} from './EntriesFilter.js';
-import {EventsSerializer} from './EventsSerializer.js';
-import type * as Overlays from './overlays/overlays.js';
+import * as Utils from './utils/utils.js';
 
 const modificationsManagerByTraceIndex: ModificationsManager[] = [];
 let activeManager: ModificationsManager|null;
@@ -24,7 +23,7 @@ export type UpdateAction =
 export class AnnotationModifiedEvent extends Event {
   static readonly eventName = 'annotationmodifiedevent';
 
-  constructor(public overlay: Overlays.Overlays.TimelineOverlay, public action: UpdateAction) {
+  constructor(public overlay: Trace.Types.Overlays.Overlay, public action: UpdateAction) {
     super(AnnotationModifiedEvent.eventName);
   }
 }
@@ -42,8 +41,8 @@ export class ModificationsManager extends EventTarget {
   #timelineBreadcrumbs: TimelineComponents.Breadcrumbs.Breadcrumbs;
   #modifications: Trace.Types.File.Modifications|null = null;
   #parsedTrace: Trace.Handlers.Types.ParsedTrace;
-  #eventsSerializer: EventsSerializer;
-  #overlayForAnnotation: Map<Trace.Types.File.Annotation, Overlays.Overlays.TimelineOverlay>;
+  #eventsSerializer: Utils.EventsSerializer.EventsSerializer;
+  #overlayForAnnotation: Map<Trace.Types.File.Annotation, Trace.Types.Overlays.Overlay>;
   readonly #annotationsHiddenSetting: Common.Settings.Setting<boolean>;
 
   /**
@@ -110,7 +109,7 @@ export class ModificationsManager extends EventTarget {
     this.#timelineBreadcrumbs = new TimelineComponents.Breadcrumbs.Breadcrumbs(traceBounds);
     this.#modifications = modifications || null;
     this.#parsedTrace = parsedTrace;
-    this.#eventsSerializer = new EventsSerializer();
+    this.#eventsSerializer = new Utils.EventsSerializer.EventsSerializer();
     // This method is also called in SidebarAnnotationsTab, but calling this multiple times doesn't recreate the setting.
     // Instead, after the second call, the cached setting is returned.
     this.#annotationsHiddenSetting = Common.Settings.Settings.instance().moduleSetting('annotations-hidden');
@@ -138,8 +137,7 @@ export class ModificationsManager extends EventTarget {
    * Stores the annotation and creates its overlay.
    * @returns the Overlay that gets created and associated with this annotation.
    */
-  createAnnotation(newAnnotation: Trace.Types.File.Annotation, loadedFromFile = false):
-      Overlays.Overlays.TimelineOverlay {
+  createAnnotation(newAnnotation: Trace.Types.File.Annotation, loadedFromFile = false): Trace.Types.Overlays.Overlay {
     // If a label already exists on an entry and a user is trying to create a new one, start editing an existing label instead.
     if (newAnnotation.type === 'ENTRY_LABEL') {
       const overlay = this.#findLabelOverlayForEntry(newAnnotation.entry);
@@ -175,7 +173,7 @@ export class ModificationsManager extends EventTarget {
     return false;
   }
 
-  #findLabelOverlayForEntry(entry: Trace.Types.Events.Event): Overlays.Overlays.TimelineOverlay|null {
+  #findLabelOverlayForEntry(entry: Trace.Types.Events.Event): Trace.Types.Overlays.Overlay|null {
     for (const [annotation, overlay] of this.#overlayForAnnotation.entries()) {
       if (annotation.type === 'ENTRY_LABEL' && annotation.entry === entry) {
         return overlay;
@@ -192,8 +190,8 @@ export class ModificationsManager extends EventTarget {
     }
   }
 
-  #createOverlayFromAnnotation(annotation: Trace.Types.File.Annotation): Overlays.Overlays.EntryLabel
-      |Overlays.Overlays.TimeRangeLabel|Overlays.Overlays.EntriesLink {
+  #createOverlayFromAnnotation(annotation: Trace.Types.File.Annotation): Trace.Types.Overlays.EntryLabel
+      |Trace.Types.Overlays.TimeRangeLabel|Trace.Types.Overlays.EntriesLink {
     switch (annotation.type) {
       case 'ENTRY_LABEL':
         return {
@@ -230,7 +228,7 @@ export class ModificationsManager extends EventTarget {
     this.dispatchEvent(new AnnotationModifiedEvent(overlayToRemove, 'Remove'));
   }
 
-  removeAnnotationOverlay(removedOverlay: Overlays.Overlays.TimelineOverlay): void {
+  removeAnnotationOverlay(removedOverlay: Trace.Types.Overlays.Overlay): void {
     const annotationForRemovedOverlay = this.getAnnotationByOverlay(removedOverlay);
     if (!annotationForRemovedOverlay) {
       console.warn('Annotation for deleted Overlay does not exist', removedOverlay);
@@ -261,7 +259,7 @@ export class ModificationsManager extends EventTarget {
     }
   }
 
-  updateAnnotationOverlay(updatedOverlay: Overlays.Overlays.TimelineOverlay): void {
+  updateAnnotationOverlay(updatedOverlay: Trace.Types.Overlays.Overlay): void {
     const annotationForUpdatedOverlay = this.getAnnotationByOverlay(updatedOverlay);
     if (!annotationForUpdatedOverlay) {
       console.warn('Annotation for updated Overlay does not exist');
@@ -281,7 +279,7 @@ export class ModificationsManager extends EventTarget {
     }
   }
 
-  getAnnotationByOverlay(overlay: Overlays.Overlays.TimelineOverlay): Trace.Types.File.Annotation|null {
+  getAnnotationByOverlay(overlay: Trace.Types.Overlays.Overlay): Trace.Types.File.Annotation|null {
     for (const [annotation, currOverlay] of this.#overlayForAnnotation.entries()) {
       if (currOverlay === overlay) {
         return annotation;
@@ -290,11 +288,15 @@ export class ModificationsManager extends EventTarget {
     return null;
   }
 
+  getOverlaybyAnnotation(annotation: Trace.Types.File.Annotation): Trace.Types.Overlays.Overlay|null {
+    return this.#overlayForAnnotation.get(annotation) || null;
+  }
+
   getAnnotations(): Trace.Types.File.Annotation[] {
     return [...this.#overlayForAnnotation.keys()];
   }
 
-  getOverlays(): Overlays.Overlays.TimelineOverlay[] {
+  getOverlays(): Trace.Types.Overlays.Overlay[] {
     return [...this.#overlayForAnnotation.values()];
   }
 

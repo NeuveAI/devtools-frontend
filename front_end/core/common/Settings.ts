@@ -179,9 +179,9 @@ export class Settings {
 
   /**
    * Get setting via key, and create a new setting if the requested setting does not exist.
-   * @param {string} key kebab-case string ID
-   * @param {T} defaultValue
-   * @param {SettingStorageType=} storageType If not specified, SettingStorageType.GLOBAL is used.
+   * @param key kebab-case string ID
+   * @param defaultValue
+   * @param storageType If not specified, SettingStorageType.GLOBAL is used.
    */
   createSetting<T>(key: string, defaultValue: T, storageType?: SettingStorageType): Setting<T> {
     const storage = this.storageFromType(storageType);
@@ -674,7 +674,7 @@ export class VersionController {
   static readonly SYNCED_VERSION_SETTING_NAME = 'syncedInspectorVersion';
   static readonly LOCAL_VERSION_SETTING_NAME = 'localInspectorVersion';
 
-  static readonly CURRENT_VERSION = 39;
+  static readonly CURRENT_VERSION = 40;
 
   readonly #globalVersionSetting: Setting<number>;
   readonly #syncedVersionSetting: Setting<number>;
@@ -1359,6 +1359,93 @@ export class VersionController {
     }
   }
 
+  /**
+   * There are two related migrations here for handling network throttling persistence:
+   * 1. Go through all user custom throttling conditions and add a `key` property.
+   * 2. If the user has a 'preferred-network-condition' setting, take the value
+   *    of that and set the right key for the new 'active-network-condition-key'
+   *    setting. Then, remove the now-obsolete 'preferred-network-condition'
+   *    setting.
+   */
+  updateVersionFrom39To40(): void {
+    const hasCustomNetworkConditionsSetting = (): boolean => {
+      try {
+        // this will error if it does not exist
+        moduleSetting('custom-network-conditions');
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (hasCustomNetworkConditionsSetting()) {
+      /**
+       * We added keys to custom network throttling conditions in M140, so we
+       * need to go through any existing profiles the user has and add the key to
+       * them.
+       * We can't use the SDK.NetworkManager.Condition here as it would be a
+       * circular dependency. All that matters is that these conditions are
+       * objects, and we need to set the right key on each one. The actual keys &
+       * values in the object are not important.
+       */
+      const conditionsSetting = moduleSetting('custom-network-conditions') as Setting<Array<{key?: string}>>;
+      const customConditions = conditionsSetting.get();
+      if (customConditions?.length > 0) {
+        customConditions.forEach((condition, i) => {
+          // This could be run multiple times, make sure that we don't override any
+          // existing keys.
+          if (condition.key) {
+            return;
+          }
+          // The format of this key is important: see
+          // SDK.NetworkManager.UserDefinedThrottlingConditionKey
+          condition.key = `USER_CUSTOM_SETTING_${i + 1}`;
+        });
+        conditionsSetting.set(customConditions);
+      }
+    }
+
+    // Additionally, we need to make sure we persist the right throttling for
+    // users who have a preferred-network-condition set.
+    const PREFERRED_NETWORK_COND_SETTING = 'preferred-network-condition';
+    // We shipped a change to how we persist network throttling conditions and
+    // added a `key` property rather than rely on any user visible string which
+    // is more likely to change. This migration step tries to update the
+    // setting for users, or removes it if we fail, so they start fresh next
+    // time they load DevTools.
+    const setting = Settings.instance().globalStorage.get(PREFERRED_NETWORK_COND_SETTING);
+    if (!setting) {
+      return;
+    }
+    // The keys here are the UI Strings as of July 2025 (shipped in M139).
+    // This migration shipped in M140. The values are the values of the
+    // `PredefinedThrottlingConditionKey` in SDK.NetworkManager.
+    const UI_STRING_TO_NEW_KEY = {
+      'Fast 4G': 'SPEED_FAST_4G',
+      'Slow 4G': 'SPEED_SLOW_4G',
+      '3G': 'SPEED_3G',
+      'No throttling': 'NO_THROTTLING',
+      Offline: 'OFFLINE'
+    };
+    try {
+      const networkSetting = JSON.parse(setting) as unknown as {
+        // Can't use SDK type here as it creates a common<>sdk circular
+        // dep. We only rely on the i18nTitleKey.
+        i18nTitleKey?: string,
+      };
+      if (networkSetting.i18nTitleKey && UI_STRING_TO_NEW_KEY.hasOwnProperty(networkSetting.i18nTitleKey)) {
+        const key = UI_STRING_TO_NEW_KEY[networkSetting.i18nTitleKey as keyof typeof UI_STRING_TO_NEW_KEY];
+
+        // The second argument is the default value, so it's important that we
+        // set this to the default, and then update it to the new key.
+        const newSetting = Settings.instance().createSetting('active-network-condition-key', 'NO_THROTTLING');
+        newSetting.set(key);
+      }
+    } finally {
+      // This setting is now not used, so we can remove it.
+      Settings.instance().globalStorage.remove(PREFERRED_NETWORK_COND_SETTING);
+    }
+  }
+
   /*
    * Any new migration should be added before this comment.
    *
@@ -1409,13 +1496,17 @@ export class VersionController {
 export const enum SettingStorageType {
   /** Persists with the active Chrome profile but also syncs the settings across devices via Chrome Sync. */
   SYNCED = 'Synced',
-  /** Persists with the active Chrome profile, but not synchronized to other devices.
-   * The default SettingStorageType of createSetting(). */
+  /**
+   * Persists with the active Chrome profile, but not synchronized to other devices.
+   * The default SettingStorageType of createSetting().
+   */
   GLOBAL = 'Global',
   /** Uses Window.localStorage. Not recommended, legacy. */
   LOCAL = 'Local',
-  /** Session storage dies when DevTools window closes. Useful for atypical conditions that should be reverted when the
-   * user is done with their task. (eg Emulation modes, Debug overlays). These are also not carried into/out of incognito */
+  /**
+   * Session storage dies when DevTools window closes. Useful for atypical conditions that should be reverted when the
+   * user is done with their task. (eg Emulation modes, Debug overlays). These are also not carried into/out of incognito
+   */
   SESSION = 'Session',
 }
 

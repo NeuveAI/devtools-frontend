@@ -16,7 +16,7 @@ import * as RecordingMetadata from './RecordingMetadata.js';
 
 const UIStrings = {
   /**
-   *@description Text in Timeline Controller of the Performance panel indicating that the Performance Panel cannot
+   * @description Text in Timeline Controller of the Performance panel indicating that the Performance Panel cannot
    * record a performance trace because the type of target (where possible types are page, service worker and shared
    * worker) doesn't support it.
    */
@@ -131,6 +131,8 @@ export class TimelineController implements Tracing.TracingManager.TracingManager
     }
     if (options.captureSelectorStats) {
       categoriesArray.push(disabledByDefault('blink.debug'));
+      // enable invalidation nodes
+      categoriesArray.push(disabledByDefault('devtools.timeline.invalidationTracking'));
     }
 
     await LiveMetrics.LiveMetrics.instance().disable();

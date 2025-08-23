@@ -20,7 +20,7 @@ import {TargetManager} from './TargetManager.js';
 
 const UIStrings = {
   /**
-   *@description Text in Overlay Model
+   * @description Text in Overlay Model
    */
   pausedInDebugger: 'Paused in debugger',
 } as const;
@@ -461,10 +461,6 @@ export class OverlayModel extends SDKModel<EventTypes> implements ProtocolProxyA
 
   setSourceOrderActive(isActive: boolean): void {
     this.#sourceOrderModeActiveInternal = isActive;
-  }
-
-  sourceOrderModeActive(): boolean {
-    return this.#sourceOrderModeActiveInternal;
   }
 
   private delayedHideHighlight(delay: number): void {

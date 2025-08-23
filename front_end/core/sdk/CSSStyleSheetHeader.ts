@@ -16,11 +16,11 @@ import {ResourceTreeModel} from './ResourceTreeModel.js';
 
 const UIStrings = {
   /**
-   *@description Error message for when a CSS file can't be loaded
+   * @description Error message for when a CSS file can't be loaded
    */
   couldNotFindTheOriginalStyle: 'Could not find the original style sheet.',
   /**
-   *@description Error message to display when a source CSS file could not be retrieved.
+   * @description Error message to display when a source CSS file could not be retrieved.
    */
   thereWasAnErrorRetrievingThe: 'There was an error retrieving the source styles.',
 } as const;
@@ -161,10 +161,6 @@ export class CSSStyleSheetHeader implements TextUtils.ContentProvider.ContentPro
 
   contentType(): Common.ResourceType.ResourceType {
     return Common.ResourceType.resourceTypes.Stylesheet;
-  }
-
-  requestContent(): Promise<TextUtils.ContentProvider.DeferredContent> {
-    return this.requestContentData().then(TextUtils.ContentData.ContentData.asDeferredContent.bind(undefined));
   }
 
   async requestContentData(): Promise<TextUtils.ContentData.ContentDataOrError> {

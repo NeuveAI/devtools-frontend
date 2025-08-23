@@ -60,6 +60,7 @@ async function innerForTraceCalculate({recordingStartTime, cruxFieldData}: DataF
       packetQueueLength: networkConditions.packetQueueLength,
       packetReordering: networkConditions.packetReordering,
       targetLatency: networkConditions.targetLatency,
+      key: networkConditions.key,
     };
     networkTitle = typeof networkConditions.title === 'function' ? networkConditions.title() : networkConditions.title;
   }
@@ -73,5 +74,6 @@ async function innerForTraceCalculate({recordingStartTime, cruxFieldData}: DataF
     networkThrottlingConditions,
     dataOrigin: Trace.Types.File.DataOrigin.TRACE_EVENTS,
     cruxFieldData: cruxFieldData ?? undefined,
+    hostDPR: window.devicePixelRatio,
   };
 }

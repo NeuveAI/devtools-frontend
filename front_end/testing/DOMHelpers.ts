@@ -13,6 +13,8 @@ import type * as Platform from '../core/platform/platform.js';
 import type * as NodeText from '../ui/components/node_text/node_text.js';
 import * as UI from '../ui/legacy/legacy.js';
 
+import {checkForPendingActivity} from './TrackAsyncOperations.js';
+
 const TEST_CONTAINER_ID = '__devtools-test-container-id';
 
 interface RenderOptions {
@@ -187,9 +189,7 @@ export function dispatchFocusOutEvent<T extends Element>(element: T, options: Fo
 export function dispatchKeyDownEvent<T extends Element>(element: T, options: KeyboardEventInit = {}) {
   const clickEvent = new KeyboardEvent('keydown', options);
   const success = element.dispatchEvent(clickEvent);
-  if (!success) {
-    assert.fail('Failed to trigger keydown event successfully.');
-  }
+  assert.isOk(success, 'Failed to trigger keydown event successfully.');
 }
 
 export function dispatchInputEvent<T extends Element>(element: T, options: InputEventInit = {}) {
@@ -345,6 +345,8 @@ export async function assertScreenshot(filename: string) {
   // Which means we may try to take screenshot while they are loading
   await document.fonts.ready;
   await raf();
+  // Pending activity before taking screenshots results in flakiness.
+  await checkForPendingActivity();
   // @ts-expect-error see karma config.
   const errorMessage = await window.assertScreenshot(`#${TEST_CONTAINER_ID}`, filename);
   if (errorMessage) {

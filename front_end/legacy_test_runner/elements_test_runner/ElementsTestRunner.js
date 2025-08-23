@@ -12,7 +12,7 @@ import * as Components from '../../ui/legacy/components/utils/utils.js';
 import * as UI from '../../ui/legacy/legacy.js';
 
 /**
- * @fileoverview using private properties isn't a Closure violation in tests.
+ * @file using private properties isn't a Closure violation in tests.
  */
 self.ElementsTestRunner = self.ElementsTestRunner || {};
 
@@ -30,7 +30,7 @@ ElementsTestRunner.selectNodeWithId = function(idValue, callback) {
 
 /**
  * @param {!Object} node
- * @return {!Promise.<undefined>}
+ * @returns {!Promise.<undefined>}
  */
 ElementsTestRunner.selectNode = function(node) {
   return Common.Revealer.reveal(node);
@@ -105,7 +105,7 @@ ElementsTestRunner.findNode = async function(matchFunction, callback) {
 
 /**
  * @param {function(!Element): boolean} matchFunction
- * @param {!Promise}
+ * @returns {!Promise}
  */
 ElementsTestRunner.findNodePromise = function(matchFunction) {
   return new Promise(resolve => ElementsTestRunner.findNode(matchFunction, resolve));
@@ -174,7 +174,7 @@ ElementsTestRunner.expandAndDumpEventListeners = function(eventListenersView, ca
 /**
  * @param {!EventListeners.EventListenersView.EventListenersView} eventListenersView
  * @param {boolean=} force
- * @return {!Promise}
+ * @returns {!Promise}
  */
 ElementsTestRunner.expandAndDumpEventListenersPromise = function(eventListenersView, force) {
   return new Promise(resolve => ElementsTestRunner.expandAndDumpEventListeners(eventListenersView, resolve, force));
@@ -398,7 +398,7 @@ ElementsTestRunner.selectNodeAndWaitForStylesWithComputed = function(idValue, ca
 };
 
 ElementsTestRunner.firstElementsTreeOutline = function() {
-  return Elements.ElementsPanel.ElementsPanel.instance().treeOutlines.values().next().value;
+  return Elements.ElementsPanel.ElementsPanel.instance().getTreeOutlineForTesting();
 };
 
 ElementsTestRunner.filterMatchedStyles = function(text) {
@@ -599,7 +599,7 @@ ElementsTestRunner.showEventListenersWidget = function() {
 };
 
 /**
- * @return {Promise}
+ * @returns {Promise}
  */
 ElementsTestRunner.showComputedStyles = function() {
   Elements.ElementsPanel.ElementsPanel.instance().sidebarPaneView.tabbedPane().selectTab('computed', true);
@@ -1261,24 +1261,6 @@ ElementsTestRunner.dumpInspectorGridHighlightsJSON = async function(idValues, ca
   const result = await TestRunner.OverlayAgent.getGridHighlightObjectsForTest(nodeIds);
   TestRunner.addResult(JSON.stringify(result, null, 2));
   callback();
-};
-
-ElementsTestRunner.dumpInspectorDistanceJSON = function(idValue, callback) {
-  ElementsTestRunner.nodeWithId(idValue, nodeResolved);
-
-  async function nodeResolved(node) {
-    const result = await TestRunner.OverlayAgent.getHighlightObjectForTest(node.id, true);
-    const info = result['distanceInfo'];
-    if (!info) {
-      TestRunner.addResult(`${idValue}: No distance info`);
-    } else {
-      if (info['style']) {
-        info['style'] = '<style data>';
-      }
-      TestRunner.addResult(idValue + JSON.stringify(info, null, 2));
-    }
-    callback();
-  }
 };
 
 ElementsTestRunner.dumpInspectorHighlightStyleJSON = async function(idValue) {

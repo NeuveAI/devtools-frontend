@@ -328,6 +328,16 @@ export class UserMetrics {
     InspectorFrontendHostInstance.recordCountHistogram(
         'DevTools.PerformanceAI.NetworkSummaryResponseSize', bytes, 0, 100_000, 100);
   }
+
+  performanceAINetworkRequestDetailResponseSize(bytes: number): void {
+    InspectorFrontendHostInstance.recordCountHistogram(
+        'DevTools.PerformanceAI.NetworkRequestDetailResponseSize', bytes, 0, 100_000, 100);
+  }
+
+  performanceAIMainThreadActivityResponseSize(bytes: number): void {
+    InspectorFrontendHostInstance.recordCountHistogram(
+        'DevTools.PerformanceAI.MainThreadActivityResponseSize', bytes, 0, 100_000, 100);
+  }
 }
 
 /**
@@ -516,7 +526,7 @@ export enum Action {
   AiAssistanceOpenedFromNetworkPanel = 170,
   AiAssistanceOpenedFromSourcesPanel = 171,
   AiAssistanceOpenedFromSourcesPanelFloatingButton = 172,
-  AiAssistanceOpenedFromPerformancePanel = 173,
+  AiAssistanceOpenedFromPerformancePanelCallTree = 173,
   AiAssistanceOpenedFromNetworkPanelFloatingButton = 174,
   AiAssistancePanelOpened = 175,
   AiAssistanceQuerySubmitted = 176,
@@ -526,7 +536,9 @@ export enum Action {
   AiAssistanceSideEffectRejected = 180,
   AiAssistanceError = 181,
   AiAssistanceOpenedFromPerformanceInsight = 182,
-  MAX_VALUE = 183,
+  AiAssistanceOpenedFromPerformanceFullButton = 183,
+  AiCodeCompletionResponseServedFromCache = 184,
+  MAX_VALUE = 185,
   /* eslint-enable @typescript-eslint/naming-convention */
 }
 
@@ -813,15 +825,16 @@ export enum DevtoolsExperiments {
   'highlight-errors-elements-panel' = 73,
   'use-source-map-scopes' = 76,
   'timeline-show-postmessage-events' = 86,
+  'timeline-save-as-gz' = 108,
+  'timeline-ask-ai-full-button' = 109,
   'timeline-enhanced-traces' = 90,
   'timeline-compiled-sources' = 91,
   'timeline-debug-mode' = 93,
-  'timeline-experimental-insights' = 102,
   'vertical-drawer' = 107,
   /* eslint-enable @typescript-eslint/naming-convention */
 
   // Increment this when new experiments are added.
-  MAX_VALUE = 108,
+  MAX_VALUE = 110,
 }
 
 // Update DevToolsIssuesPanelIssueExpanded from tools/metrics/histograms/enums.xml if new enum is added.
@@ -941,11 +954,11 @@ export enum IssueCreated {
   'CookieIssue::WarnThirdPartyPhaseout::SetCookie' = 83,
   'CookieIssue::ExcludeThirdPartyPhaseout::ReadCookie' = 84,
   'CookieIssue::ExcludeThirdPartyPhaseout::SetCookie' = 85,
-  'SelectElementAccessibilityIssue::DisallowedSelectChild' = 86,
-  'SelectElementAccessibilityIssue::DisallowedOptGroupChild' = 87,
-  'SelectElementAccessibilityIssue::NonPhrasingContentOptionChild' = 88,
-  'SelectElementAccessibilityIssue::InteractiveContentOptionChild' = 89,
-  'SelectElementAccessibilityIssue::InteractiveContentLegendChild' = 90,
+  'ElementAccessibilityIssue::DisallowedSelectChild' = 86,
+  'ElementAccessibilityIssue::DisallowedOptGroupChild' = 87,
+  'ElementAccessibilityIssue::NonPhrasingContentOptionChild' = 88,
+  'ElementAccessibilityIssue::InteractiveContentOptionChild' = 89,
+  'ElementAccessibilityIssue::InteractiveContentLegendChild' = 90,
   'SRIMessageSignatureIssue::MissingSignatureHeader' = 91,
   'SRIMessageSignatureIssue::MissingSignatureInputHeader' = 92,
   'SRIMessageSignatureIssue::InvalidSignatureHeader' = 93,
@@ -968,8 +981,9 @@ export enum IssueCreated {
   'SRIMessageSignatureIssue::ValidationFailedSignatureMismatch' = 110,
   'CorsIssue::LocalNetworkAccessPermissionDenied' = 111,
   'SRIMessageSignatureIssue::ValidationFailedIntegrityMismatch' = 112,
+  'ElementAccessibilityIssue::InteractiveContentSummaryDescendant' = 113,
   /* eslint-enable @typescript-eslint/naming-convention */
-  MAX_VALUE = 113,
+  MAX_VALUE = 114,
 }
 
 export const enum DeveloperResourceLoaded {

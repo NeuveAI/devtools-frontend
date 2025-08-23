@@ -3,8 +3,11 @@
 // found in the LICENSE file.
 
 import * as AddSourceMapURLDialog from './AddSourceMapURLDialog.js';
+import * as AiCodeCompletionPlugin from './AiCodeCompletionPlugin.js';
 import * as AiWarningInfobarPlugin from './AiWarningInfobarPlugin.js';
 import * as BreakpointEditDialog from './BreakpointEditDialog.js';
+import * as BreakpointsView from './BreakpointsView.js';
+import * as BreakpointsViewUtils from './BreakpointsViewUtils.js';
 import * as CallStackSidebarPane from './CallStackSidebarPane.js';
 import * as CategorizedBreakpointL10n from './CategorizedBreakpointL10n.js';
 import * as CoveragePlugin from './CoveragePlugin.js';
@@ -35,8 +38,11 @@ import * as WatchExpressionsSidebarPane from './WatchExpressionsSidebarPane.js';
 
 export {
   AddSourceMapURLDialog,
+  AiCodeCompletionPlugin,
   AiWarningInfobarPlugin,
   BreakpointEditDialog,
+  BreakpointsView,
+  BreakpointsViewUtils,
   CallStackSidebarPane,
   CategorizedBreakpointL10n,
   CoveragePlugin,

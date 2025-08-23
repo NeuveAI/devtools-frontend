@@ -21,7 +21,6 @@ import {
   waitForLines,
   waitForSourceFiles,
 } from '../../e2e/helpers/sources-helpers.js';
-import {assertNotNullOrUndefined} from '../../shared/helper.js';
 import type {DevToolsPage} from '../shared/frontend-helper.js';
 import type {InspectedPage} from '../shared/target-helper.js';
 
@@ -51,8 +50,8 @@ describe('Multi-Workers', function() {
       await waitForLines(12, devToolsPage);
       // Wait for breakpoints to be present
       await devToolsPage.waitFor('.cm-gutterElement ~ .cm-breakpoint ~ .cm-breakpoint');
-      assert.deepEqual(await getBreakpointDecorators(false, devToolsPage), [6, 12]);
-      assert.deepEqual(await getBreakpointDecorators(true, devToolsPage), [6]);
+      assert.deepEqual(await getBreakpointDecorators(false, 2, devToolsPage), [6, 12]);
+      assert.deepEqual(await getBreakpointDecorators(true, 1, devToolsPage), [6]);
     }
 
     describe(`loads scripts exactly once ${withOrWithout}`, () => {
@@ -173,7 +172,7 @@ describe('Multi-Workers', function() {
 
         const bpEntry = await devToolsPage.waitFor(BREAKPOINT_ITEM_SELECTOR);
         const bpCheckbox = await bpEntry?.$('input');
-        assertNotNullOrUndefined(bpCheckbox);
+        assert.isOk(bpCheckbox);
         await bpCheckbox.click();
         await devToolsPage.waitFor('.cm-breakpoint-disabled');
 

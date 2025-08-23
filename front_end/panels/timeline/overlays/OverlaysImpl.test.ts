@@ -17,6 +17,7 @@ import {
 import {TraceLoader} from '../../../testing/TraceLoader.js';
 import * as RenderCoordinator from '../../../ui/components/render_coordinator/render_coordinator.js';
 import * as PerfUI from '../../../ui/legacy/components/perf_ui/perf_ui.js';
+import * as UI from '../../../ui/legacy/legacy.js';
 import * as PanelCommon from '../../common/common.js';
 import * as Timeline from '../timeline.js';
 
@@ -295,7 +296,7 @@ describeWithEnvironment('Overlays', () => {
         await overlays.update();
       });
 
-      // When an annotation overlay is remomved, this event is dispatched to the Modifications Manager.
+      // When an annotation overlay is removed, this event is dispatched to the Modifications Manager.
       overlays.addEventListener(Overlays.Overlays.AnnotationOverlayActionEvent.eventName, async event => {
         const {overlay, action} = (event as Overlays.Overlays.AnnotationOverlayActionEvent);
         if (action === 'Remove') {
@@ -466,7 +467,7 @@ describeWithEnvironment('Overlays', () => {
       const overlayDOM = container.querySelector<HTMLElement>('.overlay-type-ENTRY_LABEL');
       assert.isOk(overlayDOM);
 
-      const overlayClick = new Promise<Overlays.Overlays.EntryLabel>(resolve => {
+      const overlayClick = new Promise<Trace.Types.Overlays.EntryLabel>(resolve => {
         overlays.addEventListener(Overlays.Overlays.EntryLabelMouseClick.eventName, e => {
           const event = e as Overlays.Overlays.EntryLabelMouseClick;
           resolve(event.overlay);
@@ -517,7 +518,7 @@ describeWithEnvironment('Overlays', () => {
          const customLearnMoreButtonTitle = showFreDialogStub.lastCall.args[0].learnMoreButtonTitle;
          assert.exists(
              customLearnMoreButtonTitle, 'Expected FreDialog to have a custom button title but it\'s not provided');
-         assert.deepEqual(customLearnMoreButtonTitle.toString(), 'Learn more about auto annotations');
+         assert.deepEqual(customLearnMoreButtonTitle.toString(), 'Learn more');
        });
 
     it('should not show FRE dialog on the ai suggestion button click if the `ai-annotations-enabled` setting is on',
@@ -977,7 +978,7 @@ describeWithEnvironment('Overlays', () => {
 
       component.dispatchEvent(new Components.EntryLabelOverlay.EntryLabelChangeEvent('new label'));
 
-      const updatedOverlay = overlays.overlaysForEntry(event)[0] as Overlays.Overlays.EntryLabel;
+      const updatedOverlay = overlays.overlaysForEntry(event)[0] as Trace.Types.Overlays.EntryLabel;
       assert.isOk(updatedOverlay);
       // Make sure the label was updated in the Overlay Object
       assert.strictEqual(updatedOverlay.label, 'new label');
@@ -1118,6 +1119,34 @@ describeWithEnvironment('Overlays', () => {
       assert.isOk(overlayDOM);
     });
 
+    it('can render the infobar banner at the bottom of the view', async function() {
+      const {parsedTrace} = await TraceLoader.traceEngine(this, 'web-dev-with-commit.json.gz');
+      const {overlays, container} = setupChartWithDimensionsAndAnnotationOverlayListeners(parsedTrace);
+
+      const infobar = new UI.Infobar.Infobar(UI.Infobar.Type.WARNING, 'Test infobar', []);
+
+      overlays.add({
+        type: 'BOTTOM_INFO_BAR',
+        infobar,
+      });
+      await overlays.update();
+      const overlayDOM = container.querySelector<HTMLElement>('.overlay-type-BOTTOM_INFO_BAR');
+      assert.isOk(overlayDOM);
+      assert.strictEqual(overlayDOM.style.display, 'none');
+
+      overlays.updateChartDimensions('main', {
+        widthPixels: 1000,
+        heightPixels: 500,
+        // The total height of the main chart with this trace is 2304 pixels.
+        // To make the overlay visible, we need the user to scroll to the bottom.
+        // This means they need to scroll to 2304 - 500 (container height).
+        scrollOffsetPixels: 2304 - 500,
+        allGroupsCollapsed: false,
+      });
+      await overlays.update();
+      assert.strictEqual(overlayDOM.style.display, 'block');
+    });
+
     it('can return a list of overlays for an entry', async function() {
       const {parsedTrace} = await TraceLoader.traceEngine(this, 'web-dev.json.gz');
       const {overlays, charts} = setupChartWithDimensionsAndAnnotationOverlayListeners(parsedTrace);
@@ -1256,12 +1285,12 @@ describeWithEnvironment('Overlays', () => {
         dur: 100,
       } as Trace.Types.Events.Event;
 
-      const overlay1: Overlays.Overlays.EntryOutline = {
+      const overlay1: Trace.Types.Overlays.EntryOutline = {
         entry: FAKE_EVENT_1,
         type: 'ENTRY_OUTLINE',
         outlineReason: 'INFO',
       };
-      const overlay2: Overlays.Overlays.EntryOutline = {
+      const overlay2: Trace.Types.Overlays.EntryOutline = {
         entry: FAKE_EVENT_2,
         type: 'ENTRY_OUTLINE',
         outlineReason: 'INFO',
@@ -1288,7 +1317,7 @@ describeWithEnvironment('Overlays', () => {
     } as Trace.Types.Events.Event;
 
     it('does not define a log for an entry_selected overlay', () => {
-      const overlay: Overlays.Overlays.EntrySelected = {
+      const overlay: Trace.Types.Overlays.EntrySelected = {
         type: 'ENTRY_SELECTED',
         entry: FAKE_EVENT,
       };
@@ -1297,12 +1326,12 @@ describeWithEnvironment('Overlays', () => {
     });
 
     it('defines a log for an entry outline based on its type', () => {
-      const overlayInfo: Overlays.Overlays.EntryOutline = {
+      const overlayInfo: Trace.Types.Overlays.EntryOutline = {
         type: 'ENTRY_OUTLINE',
         outlineReason: 'INFO',
         entry: FAKE_EVENT,
       };
-      const overlayError: Overlays.Overlays.EntryOutline = {
+      const overlayError: Trace.Types.Overlays.EntryOutline = {
         type: 'ENTRY_OUTLINE',
         outlineReason: 'ERROR',
         entry: FAKE_EVENT,
@@ -1314,7 +1343,7 @@ describeWithEnvironment('Overlays', () => {
     });
 
     it('defines a log for entry labels', () => {
-      const overlay: Overlays.Overlays.EntryLabel = {
+      const overlay: Trace.Types.Overlays.EntryLabel = {
         type: 'ENTRY_LABEL',
         entry: FAKE_EVENT,
         label: 'hello world',
@@ -1324,7 +1353,7 @@ describeWithEnvironment('Overlays', () => {
     });
 
     it('defines a log for time ranges', () => {
-      const overlay: Overlays.Overlays.TimeRangeLabel = {
+      const overlay: Trace.Types.Overlays.TimeRangeLabel = {
         showDuration: true,
         type: 'TIME_RANGE',
         bounds: microsecondsTraceWindow(1_000, 10_000),
@@ -1335,7 +1364,7 @@ describeWithEnvironment('Overlays', () => {
     });
 
     it('defines a log for timespan breakdowns', () => {
-      const overlay: Overlays.Overlays.TimespanBreakdown = {
+      const overlay: Trace.Types.Overlays.TimespanBreakdown = {
         type: 'TIMESPAN_BREAKDOWN',
         sections: [],
       };
@@ -1344,7 +1373,7 @@ describeWithEnvironment('Overlays', () => {
     });
 
     it('defines a log for cursor timestamp marker', () => {
-      const overlay: Overlays.Overlays.TimestampMarker = {
+      const overlay: Trace.Types.Overlays.TimestampMarker = {
         type: 'TIMESTAMP_MARKER',
         timestamp: 1_000 as Trace.Types.Timing.Micro,
       };
@@ -1353,7 +1382,7 @@ describeWithEnvironment('Overlays', () => {
     });
 
     it('defines a log for candy striped time ranges', () => {
-      const overlay: Overlays.Overlays.CandyStripedTimeRange = {
+      const overlay: Trace.Types.Overlays.CandyStripedTimeRange = {
         type: 'CANDY_STRIPED_TIME_RANGE',
         bounds: microsecondsTraceWindow(1_000, 10_000),
         entry: FAKE_EVENT,
@@ -1363,13 +1392,13 @@ describeWithEnvironment('Overlays', () => {
     });
 
     it('defines a log for entries links but only if they are connected', () => {
-      const overlayConnected: Overlays.Overlays.EntriesLink = {
+      const overlayConnected: Trace.Types.Overlays.EntriesLink = {
         type: 'ENTRIES_LINK',
         entryFrom: FAKE_EVENT,
         entryTo: FAKE_EVENT,
         state: Trace.Types.File.EntriesLinkState.CONNECTED,
       };
-      const overlayPending: Overlays.Overlays.EntriesLink = {
+      const overlayPending: Trace.Types.Overlays.EntriesLink = {
         type: 'ENTRIES_LINK',
         entryFrom: FAKE_EVENT,
         entryTo: undefined,

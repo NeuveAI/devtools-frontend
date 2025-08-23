@@ -17,13 +17,13 @@ import {unescapeCssString} from './StylesSidebarPane.js';
 
 const UIStrings = {
   /**
-   *@description Text that is announced by the screen reader when the user focuses on an input field for entering the name of a CSS property in the Styles panel
-   *@example {margin} PH1
+   * @description Text that is announced by the screen reader when the user focuses on an input field for entering the name of a CSS property in the Styles panel
+   * @example {margin} PH1
    */
   cssPropertyName: '`CSS` property name: {PH1}',
   /**
-   *@description Text that is announced by the screen reader when the user focuses on an input field for entering the value of a CSS property in the Styles panel
-   *@example {10px} PH1
+   * @description Text that is announced by the screen reader when the user focuses on an input field for entering the value of a CSS property in the Styles panel
+   * @example {10px} PH1
    */
   cssPropertyValue: '`CSS` property value: {PH1}',
 } as const;
@@ -183,7 +183,8 @@ export class TracingContext {
     this.#highlighting = highlighting;
     this.#hasMoreSubstitutions =
         matchedResult?.hasMatches(
-            SDK.CSSPropertyParserMatchers.VariableMatch, SDK.CSSPropertyParserMatchers.BaseVariableMatch) ??
+            SDK.CSSPropertyParserMatchers.VariableMatch, SDK.CSSPropertyParserMatchers.BaseVariableMatch,
+            SDK.CSSPropertyParserMatchers.EnvFunctionMatch) ??
         false;
     this.#propertyName = matchedResult?.ast.propertyName ?? null;
     this.#longhandOffset = initialLonghandOffset;
@@ -234,10 +235,6 @@ export class TracingContext {
     this.#evaluationCount++;
     this.#asyncEvalCallbacks = [];
     return true;
-  }
-
-  didApplyEvaluations(): boolean {
-    return this.#appliedEvaluations > 0;
   }
 
   #setHasMoreEvaluations(value: boolean): void {
@@ -430,7 +427,7 @@ export class Renderer extends SDK.CSSPropertyParser.TreeWalker {
         node => this.walkExcludingSuccessors(
             context.ast.subtree(node), context.property, context.renderers, context.matchedResult, cssControls,
             context.options, context.tracing));
-    const nodes = renderers.map(node => node.#output).reduce(mergeWithSpacing);
+    const nodes = renderers.map(node => node.#output).reduce(mergeWithSpacing, []);
     return {nodes, cssControls};
   }
 
@@ -539,7 +536,7 @@ export class URLRenderer extends rendererBase(SDK.CSSPropertyParserMatchers.URLM
     const container = document.createDocumentFragment();
     UI.UIUtils.createTextChild(container, 'url(');
     let hrefUrl: Platform.DevToolsPath.UrlString|null = null;
-    if (this.rule && this.rule.resourceURL()) {
+    if (this.rule?.resourceURL()) {
       hrefUrl = Common.ParsedURL.ParsedURL.completeURL(this.rule.resourceURL(), url);
     } else if (this.node) {
       hrefUrl = this.node.resolveURL(url);

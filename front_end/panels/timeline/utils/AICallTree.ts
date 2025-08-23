@@ -25,6 +25,7 @@ export interface FromTimeOnThreadOptions {
   parsedTrace: Trace.Handlers.Types.ParsedTrace;
   bounds: Trace.Types.Timing.TraceWindowMicro;
 }
+
 export class AICallTree {
   constructor(
       public selectedNode: Trace.Extras.TraceTree.Node|null,
@@ -34,18 +35,36 @@ export class AICallTree {
   ) {
   }
 
+  static findEventsForThread({thread, parsedTrace, bounds}: FromTimeOnThreadOptions): Trace.Types.Events.Event[]|null {
+    const threadEvents = parsedTrace.Renderer.processes.get(thread.pid)?.threads.get(thread.tid)?.entries;
+    if (!threadEvents) {
+      return null;
+    }
+
+    return threadEvents.filter(e => Trace.Helpers.Timing.eventIsInBounds(e, bounds));
+  }
+
+  static findMainThreadTasks({thread, parsedTrace, bounds}: FromTimeOnThreadOptions):
+      Trace.Types.Events.RunTask[]|null {
+    const threadEvents = parsedTrace.Renderer.processes.get(thread.pid)?.threads.get(thread.tid)?.entries;
+    if (!threadEvents) {
+      return null;
+    }
+
+    return threadEvents.filter(Trace.Types.Events.isRunTask)
+        .filter(e => Trace.Helpers.Timing.eventIsInBounds(e, bounds));
+  }
+
   /**
    * Builds a call tree representing all calls within the given timeframe for
    * the provided thread.
    * Events that are less than 0.05% of the range duration are removed.
    */
   static fromTimeOnThread({thread, parsedTrace, bounds}: FromTimeOnThreadOptions): AICallTree|null {
-    const threadEvents = parsedTrace.Renderer.processes.get(thread.pid)?.threads.get(thread.tid)?.entries;
-
-    if (!threadEvents) {
+    const overlappingEvents = this.findEventsForThread({thread, parsedTrace, bounds});
+    if (!overlappingEvents) {
       return null;
     }
-    const overlappingEvents = threadEvents.filter(e => Trace.Helpers.Timing.eventIsInBounds(e, bounds));
 
     const visibleEventsFilter = new Trace.Extras.TraceFilter.VisibleEventsFilter(visibleTypes());
 
@@ -177,26 +196,6 @@ export class AICallTree {
     return instance;
   }
 
-  /** Define precisely how the call tree is serialized. Typically called from within `PerformanceAgent` */
-  serialize(): string {
-    const nodeToIdMap = new Map<Trace.Extras.TraceTree.Node, number>();
-    // Keep a map of URLs. We'll output a LUT to keep size down.
-    const allUrls: string[] = [];
-
-    let nodesStr = '';
-    depthFirstWalk(this.rootNode.children().values(), node => {
-      nodesStr += AICallTree.stringifyNode(node, this.parsedTrace, this.selectedNode, nodeToIdMap, allUrls);
-    });
-
-    let output = '';
-    if (allUrls.length) {
-      // Output lookup table of URLs within this tree
-      output += '\n# All URL #s:\n\n' + allUrls.map((url, index) => `  * ${index}: ${url}`).join('\n');
-    }
-    output += '\n\n# Call tree:' + nodesStr;
-    return output;
-  }
-
   /**
    * Iterates through nodes level by level using a Breadth-First Search (BFS) algorithm.
    * BFS is important here because the serialization process assumes that direct child nodes
@@ -254,24 +253,24 @@ export class AICallTree {
     }
   }
 
-  /* This is a new serialization format that is currently only used in tests.
-   * TODO: replace the current format with this one. */
-  serializeIntoCompressedFormat(): string {
+  serialize(headerLevel = 1): string {
+    const header = '#'.repeat(headerLevel);
+
     // Keep a map of URLs. We'll output a LUT to keep size down.
     const allUrls: string[] = [];
 
     let nodesStr = '';
     this.breadthFirstWalk(this.rootNode.children().values(), (node, nodeId, childStartingNode) => {
-      nodesStr += '\n' +
-          this.stringifyNodeCompressed(node, nodeId, this.parsedTrace, this.selectedNode, allUrls, childStartingNode);
+      nodesStr +=
+          '\n' + this.stringifyNode(node, nodeId, this.parsedTrace, this.selectedNode, allUrls, childStartingNode);
     });
 
     let output = '';
     if (allUrls.length) {
       // Output lookup table of URLs within this tree
-      output += '\n# All URL #s:\n\n' + allUrls.map((url, index) => `  * ${index}: ${url}`).join('\n');
+      output += `\n${header} All URLs:\n\n` + allUrls.map((url, index) => `  * ${index}: ${url}`).join('\n');
     }
-    output += '\n\n# Call tree:\n' + nodesStr;
+    output += `\n\n${header} Call tree:\n${nodesStr}`;
     return output;
   }
 
@@ -300,7 +299,7 @@ export class AICallTree {
   *     - Child range of IDs 2 to 5
   *     - This node is the selected node (S marker)
   */
-  stringifyNodeCompressed(
+  stringifyNode(
       node: Trace.Extras.TraceTree.Node, nodeId: number, parsedTrace: Trace.Handlers.Types.ParsedTrace,
       selectedNode: Trace.Extras.TraceTree.Node|null, allUrls: string[], childStartingNodeIndex?: number): string {
     const event = node.event;
@@ -364,48 +363,6 @@ export class AICallTree {
     }
 
     return line;
-  }
-  /* This custom YAML-like format with an adjacency list for children is 35% more token efficient than JSON */
-  static stringifyNode(
-      node: Trace.Extras.TraceTree.Node, parsedTrace: Trace.Handlers.Types.ParsedTrace,
-      selectedNode: Trace.Extras.TraceTree.Node|null, nodeToIdMap: Map<Trace.Extras.TraceTree.Node, number>,
-      allUrls: string[]): string {
-    const event = node.event;
-    if (!event) {
-      throw new Error('Event required');
-    }
-
-    const url = SourceMapsResolver.resolvedURLForEntry(parsedTrace, event);
-    // Get the index of the URL within allUrls, and push if needed. Set to -1 if there's no URL here.
-    const urlIndex = !url ? -1 : allUrls.indexOf(url) === -1 ? allUrls.push(url) - 1 : allUrls.indexOf(url);
-    const children = Array.from(node.children().values());
-
-    // Identifier string includes an id and name:
-    //   eg "[13] Parse HTML" or "[45] parseCPUProfileFormatFromFile"
-    const getIdentifier = (node: Trace.Extras.TraceTree.Node): string => {
-      if (!nodeToIdMap.has(node)) {
-        nodeToIdMap.set(node, nodeToIdMap.size + 1);
-      }
-      return `${nodeToIdMap.get(node)} – ${nameForEntry(node.event, parsedTrace)}`;
-    };
-
-    // Round milliseconds because we don't need the precision
-    const roundToTenths = (num: number): number => Math.round(num * 10) / 10;
-
-    // Build a multiline string describing this callframe node
-    const lines = [
-      `\n\nNode: ${getIdentifier(node)}`,
-      selectedNode === node && 'Selected: true',
-      node.totalTime && `dur: ${roundToTenths(node.totalTime)}`,
-      // node.functionSource && `snippet: ${node.functionSource.slice(0, 250)}`,
-      node.selfTime && `self: ${roundToTenths(node.selfTime)}`,
-      urlIndex !== -1 && `URL #: ${urlIndex}`,
-    ];
-    if (children.length) {
-      lines.push('Children:');
-      lines.push(...children.map(node => `  * ${getIdentifier(node)}`));
-    }
-    return lines.filter(Boolean).join('\n');
   }
 
   // Only used for debugging.

@@ -20,11 +20,11 @@ import {
 
 export const UIStrings = {
   /**
-   *@description Title of an insight that provides a breakdown for how long it took to download the main document.
+   * @description Title of an insight that provides a breakdown for how long it took to download the main document.
    */
   title: 'Document request latency',
   /**
-   *@description Description of an insight that provides a breakdown for how long it took to download the main document.
+   * @description Description of an insight that provides a breakdown for how long it took to download the main document.
    */
   description:
       'Your first network request is the most important.  Reduce its latency by avoiding redirects, ensuring a fast server response, and enabling text compression.',
@@ -195,8 +195,7 @@ export function generateInsight(
     return finalize({});
   }
 
-  const documentRequest =
-      parsedTrace.NetworkRequests.byTime.find(req => req.args.data.requestId === context.navigationId);
+  const documentRequest = parsedTrace.NetworkRequests.byId.get(context.navigationId);
   if (!documentRequest) {
     return finalize({warnings: [InsightWarning.NO_DOCUMENT_REQUEST]});
   }
@@ -260,4 +259,60 @@ export function generateInsight(
     metricSavings,
     wastedBytes: uncompressedResponseBytes,
   });
+}
+
+export function createOverlays(model: DocumentLatencyInsightModel): Types.Overlays.Overlay[] {
+  if (!model.data?.documentRequest) {
+    return [];
+  }
+
+  const overlays: Types.Overlays.Overlay[] = [];
+  const event = model.data.documentRequest;
+  const redirectDurationMicro = Helpers.Timing.milliToMicro(model.data.redirectDuration);
+
+  const sections = [];
+  if (model.data.redirectDuration) {
+    const bounds = Helpers.Timing.traceWindowFromMicroSeconds(
+        event.ts,
+        (event.ts + redirectDurationMicro) as Types.Timing.Micro,
+    );
+    sections.push({bounds, label: i18nString(UIStrings.redirectsLabel), showDuration: true});
+    overlays.push({type: 'CANDY_STRIPED_TIME_RANGE', bounds, entry: event});
+  }
+  if (!model.data.checklist.serverResponseIsFast.value) {
+    const serverResponseTimeMicro = Helpers.Timing.milliToMicro(model.data.serverResponseTime);
+    // NOTE: NetworkRequestHandlers never makes a synthetic network request event if `timing` is missing.
+    const sendEnd = event.args.data.timing?.sendEnd ?? Types.Timing.Milli(0);
+    const sendEndMicro = Helpers.Timing.milliToMicro(sendEnd);
+    const bounds = Helpers.Timing.traceWindowFromMicroSeconds(
+        sendEndMicro,
+        (sendEndMicro + serverResponseTimeMicro) as Types.Timing.Micro,
+    );
+    sections.push({bounds, label: i18nString(UIStrings.serverResponseTimeLabel), showDuration: true});
+  }
+  if (model.data.uncompressedResponseBytes) {
+    const bounds = Helpers.Timing.traceWindowFromMicroSeconds(
+        event.args.data.syntheticData.downloadStart,
+        (event.args.data.syntheticData.downloadStart + event.args.data.syntheticData.download) as Types.Timing.Micro,
+    );
+    sections.push({bounds, label: i18nString(UIStrings.uncompressedDownload), showDuration: true});
+    overlays.push({type: 'CANDY_STRIPED_TIME_RANGE', bounds, entry: event});
+  }
+
+  if (sections.length) {
+    overlays.push({
+      type: 'TIMESPAN_BREAKDOWN',
+      sections,
+      entry: model.data.documentRequest,
+      // Always render below because the document request is guaranteed to be
+      // the first request in the network track.
+      renderLocation: 'BELOW_EVENT',
+    });
+  }
+  overlays.push({
+    type: 'ENTRY_SELECTED',
+    entry: model.data.documentRequest,
+  });
+
+  return overlays;
 }

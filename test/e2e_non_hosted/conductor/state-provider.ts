@@ -19,44 +19,74 @@ const DEFAULT_SETTINGS = {
 
 export class StateProvider {
   static instance = new StateProvider();
-
-  #settingsCallbackMap = new Map<Mocha.Suite, E2E.SuiteSettings>();
-  #browserMap = new Map<string, BrowserWrapper>();
   static serverPort: number;
+
+  /**
+   * This provides a mapping whenever we have called the
+   * {@link Mocha.setup | setup()} function with custom settings.
+   */
+  #suiteToSettingsMap = new WeakMap<Mocha.Suite, E2E.SuiteSettings>();
+  /**
+   * This provides a quick link between suite and browser with
+   * the correct setting allowing us to skip some check
+   * because we try to run the creation of browser in a beforeEach
+   */
+  #suiteToBrowser = new WeakMap<Mocha.Suite, BrowserWrapper>();
+  /**
+   * Provides a mapping between a stable key (sorted JSON)
+   * created from the settings and a browser.
+   * This allows us to have a single browser between test
+   * that require the same settings.
+   */
+  #settingToBrowser = new Map<string, BrowserWrapper>();
 
   private constructor() {
   }
 
-  registerSettingsCallback(suite: Mocha.Suite, suiteSettings: E2E.SuiteSettings) {
-    this.#settingsCallbackMap.set(suite, suiteSettings);
+  registerSuiteSettings(suite: Mocha.Suite, suiteSettings: E2E.SuiteSettings): void {
+    this.#suiteToSettingsMap.set(suite, suiteSettings);
   }
 
-  async resolveBrowser(suite: Mocha.Suite) {
+  async resolveBrowser(suite: Mocha.Suite): Promise<void> {
     if (!StateProvider.serverPort) {
       StateProvider.serverPort = await StateProvider.#globalSetup();
     }
-    const settings = await this.#getSettings(suite);
+    let browser = this.#suiteToBrowser.get(suite);
+    if (browser?.connected) {
+      return;
+    }
+
+    const settings = this.#getSettings(suite);
     const browserSettings = {
       enabledBlinkFeatures: (settings.enabledBlinkFeatures ?? []).toSorted(),
       disabledFeatures: (settings.disabledFeatures ?? []).toSorted(),
     };
     const browserKey = JSON.stringify(browserSettings);
-    let browser = this.#browserMap.get(browserKey);
-    if (!browser) {
-      browser = await Launcher.browserSetup(browserSettings);
-      this.#browserMap.set(browserKey, browser);
+    browser = this.#settingToBrowser.get(browserKey);
+    if (browser && !browser.connected) {
+      browser?.browser.process()?.kill();
     }
+
+    if (!browser?.connected) {
+      browser = await Launcher.browserSetup(browserSettings);
+      this.#settingToBrowser.set(browserKey, browser);
+    }
+    this.#suiteToBrowser.set(suite, browser);
     // Suite needs to be aware of the browser instance to be able to create the
     // full state for the tests
     suite.browser = browser;
   }
 
   async getState(suite: Mocha.Suite) {
-    const settings = await this.#getSettings(suite);
+    const settings = this.#getSettings(suite);
     const browser = suite.browser;
+    if (!browser.connected) {
+      throw new Error('Browser disconnected unexpectedly');
+    }
+
     const browsingContext = await browser.createBrowserContext();
     const inspectedPage = await setupInspectedPage(browsingContext, StateProvider.serverPort);
-    const devToolsPage = await setupDevToolsPage(browsingContext, settings);
+    const devToolsPage = await setupDevToolsPage(browsingContext, settings, inspectedPage);
     const state = {
       devToolsPage,
       inspectedPage,
@@ -68,8 +98,8 @@ export class StateProvider {
     return {state, browsingContext};
   }
 
-  async #getSettings(suite: Mocha.Suite): Promise<E2E.HarnessSettings> {
-    const settings = this.#settingsCallbackMap.get(suite);
+  #getSettings(suite: Mocha.Suite): E2E.HarnessSettings {
+    const settings = this.#suiteToSettingsMap.get(suite);
     if (settings) {
       return mergeSettings(settings, DEFAULT_SETTINGS);
     }
@@ -88,7 +118,8 @@ export class StateProvider {
   }
 
   async closeBrowsers() {
-    await Promise.all([...this.#browserMap.values()].map(async browser => {
+    this.#settingToBrowser.values().next().value?.copyCrashDumps();
+    await Promise.allSettled([...this.#settingToBrowser.values()].map(async browser => {
       await browser.browser.close();
     }));
   }
@@ -103,6 +134,7 @@ export function mergeSettings(s1: E2E.SuiteSettings, s2: E2E.HarnessSettings): E
     enabledBlinkFeatures: mergeAsSet(s1.enabledBlinkFeatures, s2.enabledBlinkFeatures),
     disabledFeatures: mergeAsSet(s1.disabledFeatures, s2.disabledFeatures),
     enabledDevToolsExperiments: mergeAsSet(s1.enabledDevToolsExperiments, s2.enabledDevToolsExperiments),
+    disabledDevToolsExperiments: mergeAsSet(s1.disabledDevToolsExperiments, s2.disabledDevToolsExperiments),
     devToolsSettings: {...(s2.devToolsSettings ?? {}), ...(s1.devToolsSettings ?? {})},
     dockingMode: s1.dockingMode ?? s2.dockingMode,
   };

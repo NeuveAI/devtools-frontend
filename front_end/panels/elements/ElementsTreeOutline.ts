@@ -38,43 +38,39 @@ import * as Common from '../../core/common/common.js';
 import * as i18n from '../../core/i18n/i18n.js';
 import * as Root from '../../core/root/root.js';
 import * as SDK from '../../core/sdk/sdk.js';
+import * as Elements from '../../models/elements/elements.js';
 import * as IssuesManager from '../../models/issues_manager/issues_manager.js';
-import * as Adorners from '../../ui/components/adorners/adorners.js';
 import * as CodeHighlighter from '../../ui/components/code_highlighter/code_highlighter.js';
 import * as CopyToClipboard from '../../ui/components/copy_to_clipboard/copy_to_clipboard.js';
-import * as IconButton from '../../ui/components/icon_button/icon_button.js';
 import * as IssueCounter from '../../ui/components/issue_counter/issue_counter.js';
 import * as UI from '../../ui/legacy/legacy.js';
 import {html, nothing, render} from '../../ui/lit/lit.js';
 import * as VisualLogging from '../../ui/visual_logging/visual_logging.js';
 
-import * as ElementsComponents from './components/components.js';
 import {getElementIssueDetails} from './ElementIssueUtils.js';
 import {ElementsPanel} from './ElementsPanel.js';
 import {ElementsTreeElement, InitialChildrenLimit, isOpeningTag} from './ElementsTreeElement.js';
+import {ElementsTreeElementHighlighter} from './ElementsTreeElementHighlighter.js';
 import elementsTreeOutlineStyles from './elementsTreeOutline.css.js';
 import {ImagePreviewPopover} from './ImagePreviewPopover.js';
 import type {MarkerDecoratorRegistration} from './MarkerDecorator.js';
+import {ShortcutTreeElement} from './ShortcutTreeElement.js';
 import {TopLayerContainer} from './TopLayerContainer.js';
 
 const UIStrings = {
   /**
-   *@description ARIA accessible name in Elements Tree Outline of the Elements panel
+   * @description ARIA accessible name in Elements Tree Outline of the Elements panel
    */
   pageDom: 'Page DOM',
   /**
-   *@description A context menu item to store a value as a global variable the Elements Panel
+   * @description A context menu item to store a value as a global variable the Elements Panel
    */
   storeAsGlobalVariable: 'Store as global variable',
   /**
-   *@description Tree element expand all button element button text content in Elements Tree Outline of the Elements panel
-   *@example {3} PH1
+   * @description Tree element expand all button element button text content in Elements Tree Outline of the Elements panel
+   * @example {3} PH1
    */
   showAllNodesDMore: 'Show all nodes ({PH1} more)',
-  /**
-   *@description Link text content in Elements Tree Outline of the Elements panel
-   */
-  reveal: 'reveal',
   /**
    * @description Text for popover that directs to Issues panel
    */
@@ -85,6 +81,277 @@ const i18nString = i18n.i18n.getLocalizedString.bind(undefined, str_);
 const elementsTreeOutlineByDOMModel = new WeakMap<SDK.DOMModel.DOMModel, ElementsTreeOutline>();
 
 const populatedTreeElements = new Set<ElementsTreeElement>();
+
+export type View = typeof DEFAULT_VIEW;
+
+interface ViewInput {
+  omitRootDOMNode: boolean;
+  selectEnabled: boolean;
+  hideGutter: boolean;
+  visibleWidth?: number;
+  visible?: boolean;
+  wrap: boolean;
+  showSelectionOnKeyboardFocus: boolean;
+  preventTabOrder: boolean;
+  deindentSingleNode: boolean;
+
+  onSelectedNodeChanged:
+      (event: Common.EventTarget.EventTargetEvent<{node: SDK.DOMModel.DOMNode | null, focus: boolean}>) => void;
+  onElementsTreeUpdated: (event: Common.EventTarget.EventTargetEvent<SDK.DOMModel.DOMNode[]>) => void;
+}
+
+interface ViewOutput {
+  elementsTreeOutline?: ElementsTreeOutline;
+}
+
+export const DEFAULT_VIEW = (input: ViewInput, output: ViewOutput, target: HTMLElement): void => {
+  if (!output.elementsTreeOutline) {
+    // FIXME: this is basically a ref to existing imperative
+    // implementation. Once this is declarative the ref should not be
+    // needed.
+    output.elementsTreeOutline = new ElementsTreeOutline(input.omitRootDOMNode, input.selectEnabled, input.hideGutter);
+    output.elementsTreeOutline.addEventListener(
+        ElementsTreeOutline.Events.SelectedNodeChanged, input.onSelectedNodeChanged, this);
+    output.elementsTreeOutline.addEventListener(
+        ElementsTreeOutline.Events.ElementsTreeUpdated, input.onElementsTreeUpdated, this);
+    new ElementsTreeElementHighlighter(output.elementsTreeOutline, new Common.Throttler.Throttler(100));
+    target.appendChild(output.elementsTreeOutline.element);
+  }
+  if (input.visibleWidth !== undefined) {
+    output.elementsTreeOutline.setVisibleWidth(input.visibleWidth);
+  }
+  if (input.visible !== undefined) {
+    output.elementsTreeOutline.setVisible(input.visible);
+  }
+  output.elementsTreeOutline.setWordWrap(input.wrap);
+  output.elementsTreeOutline.setShowSelectionOnKeyboardFocus(input.showSelectionOnKeyboardFocus, input.preventTabOrder);
+  if (input.deindentSingleNode) {
+    output.elementsTreeOutline.deindentSingleNode();
+  }
+};
+
+/**
+ * The main goal of this presenter is to wrap ElementsTreeOutline until
+ * ElementsTreeOutline can be fully integrated into DOMTreeWidget.
+ *
+ * FIXME: once TreeOutline is declarative, this file needs to be renamed
+ * to DOMTreeWidget.ts.
+ */
+export class DOMTreeWidget extends UI.Widget.Widget {
+  omitRootDOMNode = false;
+  selectEnabled = false;
+  hideGutter = false;
+  showSelectionOnKeyboardFocus = false;
+  preventTabOrder = false;
+  deindentSingleNode = false;
+  onSelectedNodeChanged:
+      (event:
+           Common.EventTarget.EventTargetEvent<{node: SDK.DOMModel.DOMNode | null, focus: boolean}>) => void = () => {};
+  onElementsTreeUpdated: (event: Common.EventTarget.EventTargetEvent<SDK.DOMModel.DOMNode[]>) => void = () => {};
+  onDocumentUpdated: (domModel: SDK.DOMModel.DOMModel) => void = () => {};
+
+  #visible = false;
+  #visibleWidth?: number;
+  #wrap = false;
+
+  set visibleWidth(width: number) {
+    this.#visibleWidth = width;
+    this.performUpdate();
+  }
+
+  // FIXME: this is not declarative because ElementsTreeOutline can
+  // change root node internally.
+  set rootDOMNode(node: SDK.DOMModel.DOMNode|null) {
+    this.performUpdate();
+    if (!this.#viewOutput.elementsTreeOutline) {
+      throw new Error('Unexpected: missing elementsTreeOutline');
+    }
+    this.#viewOutput.elementsTreeOutline.rootDOMNode = node;
+    this.performUpdate();
+  }
+  get rootDOMNode(): SDK.DOMModel.DOMNode|null {
+    return this.#viewOutput.elementsTreeOutline?.rootDOMNode ?? null;
+  }
+
+  #view: View;
+  #viewOutput: ViewOutput = {};
+
+  constructor(element?: HTMLElement, view?: View) {
+    super(element, {
+      useShadowDom: false,
+      delegatesFocus: false,
+    });
+    this.#view = view ?? DEFAULT_VIEW;
+  }
+
+  selectDOMNode(node: SDK.DOMModel.DOMNode|null, focus?: boolean): void {
+    this.#viewOutput?.elementsTreeOutline?.selectDOMNode(node, focus);
+  }
+
+  setWordWrap(wrap: boolean): void {
+    this.#wrap = wrap;
+    this.performUpdate();
+  }
+
+  selectedDOMNode(): SDK.DOMModel.DOMNode|null {
+    return this.#viewOutput.elementsTreeOutline?.selectedDOMNode() ?? null;
+  }
+
+  /**
+   * FIXME: this is called to re-render everything from scratch, for
+   * example, if global settings changed. Instead, the setting values
+   * should be the input for the view function.
+   */
+  reload(): void {
+    this.#viewOutput.elementsTreeOutline?.update();
+  }
+
+  /**
+   * Used by layout tests.
+   */
+  getTreeOutlineForTesting(): ElementsTreeOutline|undefined {
+    return this.#viewOutput.elementsTreeOutline;
+  }
+
+  override performUpdate(): void {
+    this.#view(
+        {
+          omitRootDOMNode: this.omitRootDOMNode,
+          selectEnabled: this.selectEnabled,
+          hideGutter: this.hideGutter,
+          visibleWidth: this.#visibleWidth,
+          visible: this.#visible,
+          wrap: this.#wrap,
+          showSelectionOnKeyboardFocus: this.showSelectionOnKeyboardFocus,
+          preventTabOrder: this.preventTabOrder,
+          deindentSingleNode: this.deindentSingleNode,
+          onElementsTreeUpdated: this.onElementsTreeUpdated.bind(this),
+          onSelectedNodeChanged: this.onSelectedNodeChanged.bind(this),
+        },
+        this.#viewOutput, this.contentElement);
+  }
+
+  modelAdded(domModel: SDK.DOMModel.DOMModel): void {
+    this.performUpdate();
+    if (!this.#viewOutput.elementsTreeOutline) {
+      throw new Error('Unexpected: missing elementsTreeOutline');
+    }
+    this.#viewOutput.elementsTreeOutline.wireToDOMModel(domModel);
+    this.performUpdate();
+  }
+
+  modelRemoved(domModel: SDK.DOMModel.DOMModel): void {
+    this.#viewOutput.elementsTreeOutline?.unwireFromDOMModel(domModel);
+    this.performUpdate();
+  }
+
+  /**
+   * FIXME: which node is expanded should be part of the view input.
+   */
+  expand(): void {
+    if (this.#viewOutput.elementsTreeOutline?.selectedTreeElement) {
+      this.#viewOutput.elementsTreeOutline.selectedTreeElement.expand();
+    }
+  }
+
+  /**
+   * FIXME: which node is selected should be part of the view input.
+   */
+  selectDOMNodeWithoutReveal(node: SDK.DOMModel.DOMNode): void {
+    this.#viewOutput.elementsTreeOutline?.findTreeElement(node)?.select();
+  }
+
+  /**
+   * FIXME: adorners should be part of the view input.
+   */
+  updateNodeAdorners(node: SDK.DOMModel.DOMNode): void {
+    void this.#viewOutput.elementsTreeOutline?.findTreeElement(node)?.updateStyleAdorners();
+  }
+
+  highlightMatch(node: SDK.DOMModel.DOMNode, query?: string): void {
+    const treeElement = this.#viewOutput.elementsTreeOutline?.findTreeElement(node);
+    if (!treeElement) {
+      return;
+    }
+    if (query) {
+      treeElement.highlightSearchResults(query);
+    }
+    treeElement.reveal();
+    const matches = treeElement.listItemElement.getElementsByClassName(UI.UIUtils.highlightedSearchResultClassName);
+    if (matches.length) {
+      matches[0].scrollIntoViewIfNeeded(false);
+    }
+    treeElement.select(/* omitFocus */ true);
+  }
+
+  hideMatchHighlights(node: SDK.DOMModel.DOMNode): void {
+    const treeElement = this.#viewOutput.elementsTreeOutline?.findTreeElement(node);
+    if (!treeElement) {
+      return;
+    }
+    treeElement.hideSearchHighlights();
+  }
+
+  toggleHideElement(node: SDK.DOMModel.DOMNode): void {
+    void this.#viewOutput.elementsTreeOutline?.toggleHideElement(node);
+  }
+
+  toggleEditAsHTML(node: SDK.DOMModel.DOMNode): void {
+    this.#viewOutput.elementsTreeOutline?.toggleEditAsHTML(node);
+  }
+
+  duplicateNode(node: SDK.DOMModel.DOMNode): void {
+    this.#viewOutput.elementsTreeOutline?.duplicateNode(node);
+  }
+
+  copyStyles(node: SDK.DOMModel.DOMNode): void {
+    void this.#viewOutput.elementsTreeOutline?.findTreeElement(node)?.copyStyles();
+  }
+
+  /**
+   * FIXME: used to determine focus state, probably we can have a better
+   * way to do it.
+   */
+  empty(): boolean {
+    return !this.#viewOutput.elementsTreeOutline;
+  }
+
+  override focus(): void {
+    super.focus();
+    this.#viewOutput.elementsTreeOutline?.focus();
+  }
+
+  override wasShown(): void {
+    super.wasShown();
+    this.#visible = true;
+    this.performUpdate();
+  }
+
+  override detach(overrideHideOnDetach?: boolean): void {
+    super.detach(overrideHideOnDetach);
+    this.#visible = false;
+    this.performUpdate();
+  }
+
+  override show(parentElement: Element, insertBefore?: Node|null, suppressOrphanWidgetError = false): void {
+    this.performUpdate();
+    const domModels = SDK.TargetManager.TargetManager.instance().models(SDK.DOMModel.DOMModel, {scoped: true});
+    for (const domModel of domModels) {
+      if (domModel.parentModel()) {
+        continue;
+      }
+      if (!this.rootDOMNode) {
+        if (domModel.existingDocument()) {
+          this.rootDOMNode = domModel.existingDocument();
+          this.onDocumentUpdated(domModel);
+        } else {
+          void domModel.requestDocument();
+        }
+      }
+    }
+    super.show(parentElement, insertBefore, suppressOrphanWidgetError);
+  }
+}
 
 export class ElementsTreeOutline extends
     Common.ObjectWrapper.eventMixin<ElementsTreeOutline.EventTypes, typeof UI.TreeOutline.TreeOutline>(
@@ -98,7 +365,7 @@ export class ElementsTreeOutline extends
   selectedDOMNodeInternal: SDK.DOMModel.DOMNode|null;
   private visible: boolean;
   private readonly imagePreviewPopover: ImagePreviewPopover;
-  private updateRecords: Map<SDK.DOMModel.DOMNode, UpdateRecord>;
+  private updateRecords: Map<SDK.DOMModel.DOMNode, Elements.ElementUpdateRecord.ElementUpdateRecord>;
   private treeElementsBeingUpdated: Set<ElementsTreeElement>;
   decoratorExtensions: MarkerDecoratorRegistration[]|null;
   private showHTMLCommentsSetting: Common.Settings.Setting<boolean>;
@@ -220,11 +487,11 @@ export class ElementsTreeOutline extends
                     // This shouldn't happen, but add this if check to pass ts check.
                     return nothing;
                   }
-                  const issueKindIconData = IssueCounter.IssueCounter.getIssueKindIconData(issue.getKind());
+                  const issueKindIconName = IssueCounter.IssueCounter.getIssueKindIconName(issue.getKind());
                   const openIssueEvent = (): Promise<void> => Common.Revealer.reveal(issue);
                   return html`
                     <div class="squiggles-content-item">
-                    <devtools-icon .data=${issueKindIconData} @click=${openIssueEvent}></devtools-icon>
+                    <devtools-icon .name=${issueKindIconName} @click=${openIssueEvent}></devtools-icon>
                     <x-link class="link" @click=${openIssueEvent}>${i18nString(UIStrings.viewIssue)}</x-link>
                     <span>${elementIssueDetails.tooltip}</span>
                     </div>`;})}
@@ -279,6 +546,13 @@ export class ElementsTreeOutline extends
       for (const [element, issues] of treeElementNodeElementsToIssues) {
         this.#nodeElementToIssues.set(element, issues);
       }
+    }
+  }
+
+  deindentSingleNode(): void {
+    const firstChild = this.firstChild();
+    if (!firstChild || (firstChild && !firstChild.isExpandable())) {
+      this.shadowRoot.querySelector('.elements-disclosure')?.classList.add('single-node');
     }
   }
 
@@ -374,14 +648,14 @@ export class ElementsTreeOutline extends
     this.performCopyOrCut(isCut, targetNode);
   }
 
-  performCopyOrCut(isCut: boolean, node: SDK.DOMModel.DOMNode|null): void {
+  performCopyOrCut(isCut: boolean, node: SDK.DOMModel.DOMNode|null, includeShadowRoots = false): void {
     if (!node) {
       return;
     }
     if (isCut && (node.isShadowRoot() || node.ancestorUserAgentShadowRoot())) {
       return;
     }
-    void node.getOuterHTML().then(outerHTML => {
+    void node.getOuterHTML(includeShadowRoots).then(outerHTML => {
       if (outerHTML !== null) {
         CopyToClipboard.copyTextToClipboard(outerHTML);
       }
@@ -868,13 +1142,18 @@ export class ElementsTreeOutline extends
   }
 
   private contextMenuEventFired(event: MouseEvent): void {
+    // The context menu construction may be async. In order to
+    // make sure that no other (default) context menu shows up, we need
+    // to stop propagating and prevent the default action.
+    event.stopPropagation();
+    event.preventDefault();
     const treeElement = this.treeElementFromEventInternal(event);
     if (treeElement instanceof ElementsTreeElement) {
-      this.showContextMenu(treeElement, event);
+      void this.showContextMenu(treeElement, event);
     }
   }
 
-  showContextMenu(treeElement: ElementsTreeElement, event: Event): void {
+  async showContextMenu(treeElement: ElementsTreeElement, event: Event): Promise<void> {
     if (UI.UIUtils.isEditing()) {
       return;
     }
@@ -895,11 +1174,11 @@ export class ElementsTreeOutline extends
         i18nString(UIStrings.storeAsGlobalVariable), this.saveNodeToTempVariable.bind(this, treeElement.node()),
         {jslogContext: 'store-as-global-variable'});
     if (textNode) {
-      treeElement.populateTextContextMenu(contextMenu, textNode);
+      await treeElement.populateTextContextMenu(contextMenu, textNode);
     } else if (isTag) {
-      treeElement.populateTagContextMenu(contextMenu, event);
+      await treeElement.populateTagContextMenu(contextMenu, event);
     } else if (commentNode) {
-      treeElement.populateNodeContextMenu(contextMenu);
+      await treeElement.populateNodeContextMenu(contextMenu);
     } else if (isPseudoElement) {
       treeElement.populatePseudoElementContextMenu(contextMenu);
     }
@@ -1145,16 +1424,16 @@ export class ElementsTreeOutline extends
     elementsTreeOutlineByDOMModel.delete(domModel);
   }
 
-  private addUpdateRecord(node: SDK.DOMModel.DOMNode): UpdateRecord {
+  private addUpdateRecord(node: SDK.DOMModel.DOMNode): Elements.ElementUpdateRecord.ElementUpdateRecord {
     let record = this.updateRecords.get(node);
     if (!record) {
-      record = new UpdateRecord();
+      record = new Elements.ElementUpdateRecord.ElementUpdateRecord();
       this.updateRecords.set(node, record);
     }
     return record;
   }
 
-  private updateRecordForHighlight(node: SDK.DOMModel.DOMNode): UpdateRecord|null {
+  private updateRecordForHighlight(node: SDK.DOMModel.DOMNode): Elements.ElementUpdateRecord.ElementUpdateRecord|null {
     if (!this.visible) {
       return null;
     }
@@ -1232,7 +1511,11 @@ export class ElementsTreeOutline extends
     this.updateModifiedNodesTimeout = window.setTimeout(this.updateModifiedNodes.bind(this), 50);
   }
 
-  private updateModifiedNodes(): void {
+  /**
+   * TODO: this is made public for unit tests until the ElementsTreeOutline is
+   * migrated into DOMTreeWidget and highlights are declarative.
+   */
+  updateModifiedNodes(): void {
     if (this.updateModifiedNodesTimeout) {
       clearTimeout(this.updateModifiedNodesTimeout);
       delete this.updateModifiedNodesTimeout;
@@ -1650,219 +1933,6 @@ export const MappedCharToEntity = new Map<string, string>([
   ['\uFEFF', '#xFEFF'],
 ]);
 // clang-format on
-
-export class UpdateRecord {
-  private modifiedAttributes?: Set<string>;
-  private removedAttributes?: Set<string>;
-  private hasChangedChildrenInternal?: boolean;
-  private hasRemovedChildrenInternal?: boolean;
-  private charDataModifiedInternal?: boolean;
-
-  attributeModified(attrName: string): void {
-    if (this.removedAttributes?.has(attrName)) {
-      this.removedAttributes.delete(attrName);
-    }
-    if (!this.modifiedAttributes) {
-      this.modifiedAttributes = (new Set());
-    }
-    this.modifiedAttributes.add(attrName);
-  }
-
-  attributeRemoved(attrName: string): void {
-    if (this.modifiedAttributes?.has(attrName)) {
-      this.modifiedAttributes.delete(attrName);
-    }
-    if (!this.removedAttributes) {
-      this.removedAttributes = (new Set());
-    }
-    this.removedAttributes.add(attrName);
-  }
-
-  nodeInserted(_node: SDK.DOMModel.DOMNode): void {
-    this.hasChangedChildrenInternal = true;
-  }
-
-  nodeRemoved(_node: SDK.DOMModel.DOMNode): void {
-    this.hasChangedChildrenInternal = true;
-    this.hasRemovedChildrenInternal = true;
-  }
-
-  charDataModified(): void {
-    this.charDataModifiedInternal = true;
-  }
-
-  childrenModified(): void {
-    this.hasChangedChildrenInternal = true;
-  }
-
-  isAttributeModified(attributeName: string): boolean {
-    return this.modifiedAttributes?.has(attributeName) ?? false;
-  }
-
-  hasRemovedAttributes(): boolean {
-    return this.removedAttributes !== null && this.removedAttributes !== undefined &&
-        Boolean(this.removedAttributes.size);
-  }
-
-  isCharDataModified(): boolean {
-    return Boolean(this.charDataModifiedInternal);
-  }
-
-  hasChangedChildren(): boolean {
-    return Boolean(this.hasChangedChildrenInternal);
-  }
-
-  hasRemovedChildren(): boolean {
-    return Boolean(this.hasRemovedChildrenInternal);
-  }
-}
-
-let rendererInstance: Renderer;
-
-export class Renderer implements UI.UIUtils.Renderer {
-  static instance(opts: {
-    forceNew: boolean|null,
-  } = {forceNew: null}): Renderer {
-    const {forceNew} = opts;
-    if (!rendererInstance || forceNew) {
-      rendererInstance = new Renderer();
-    }
-    return rendererInstance;
-  }
-
-  async render(object: Object): Promise<{
-    node: Node,
-    tree: UI.TreeOutline.TreeOutline|null,
-  }|null> {
-    let node: SDK.DOMModel.DOMNode|(SDK.DOMModel.DOMNode | null)|null = null;
-
-    if (object instanceof SDK.DOMModel.DOMNode) {
-      node = (object);
-    } else if (object instanceof SDK.DOMModel.DeferredDOMNode) {
-      node = await (object).resolvePromise();
-    }
-
-    if (!node) {
-      // Can't render not-a-node, or couldn't resolve deferred node.
-      return null;
-    }
-
-    const treeOutline = new ElementsTreeOutline(
-        /* omitRootDOMNode: */ false, /* selectEnabled: */ true, /* hideGutter: */ true);
-    treeOutline.rootDOMNode = node;
-    const firstChild = treeOutline.firstChild();
-    if (firstChild && !firstChild.isExpandable()) {
-      treeOutline.element.classList.add('single-node');
-    }
-    treeOutline.setVisible(true);
-    // @ts-expect-error used in console_test_runner
-    treeOutline.element.treeElementForTest = firstChild;
-    treeOutline.setShowSelectionOnKeyboardFocus(/* show: */ true, /* preventTabOrder: */ true);
-    return {node: treeOutline.element, tree: treeOutline};
-  }
-}
-
-export class ShortcutTreeElement extends UI.TreeOutline.TreeElement {
-  private readonly nodeShortcut: SDK.DOMModel.DOMNodeShortcut;
-  private hoveredInternal?: boolean;
-  constructor(nodeShortcut: SDK.DOMModel.DOMNodeShortcut) {
-    super('');
-    this.listItemElement.createChild('div', 'selection fill');
-    const title = this.listItemElement.createChild('span', 'elements-tree-shortcut-title');
-    let text = nodeShortcut.nodeName.toLowerCase();
-    if (nodeShortcut.nodeType === Node.ELEMENT_NODE) {
-      text = '<' + text + '>';
-    }
-    title.textContent = '\u21AA ' + text;
-    this.nodeShortcut = nodeShortcut;
-    this.addRevealAdorner();
-  }
-
-  addRevealAdorner(): void {
-    const adorner = new Adorners.Adorner.Adorner();
-    adorner.classList.add('adorner-reveal');
-    const config = ElementsComponents.AdornerManager.getRegisteredAdorner(
-        ElementsComponents.AdornerManager.RegisteredAdorners.REVEAL);
-    const name = config.name;
-    const adornerContent = document.createElement('span');
-    const linkIcon = IconButton.Icon.create('select-element');
-    const slotText = document.createElement('span');
-    slotText.textContent = name;
-    adornerContent.append(linkIcon);
-    adornerContent.append(slotText);
-    adornerContent.classList.add('adorner-with-icon');
-    adorner.data = {
-      name,
-      content: adornerContent,
-      jslogContext: 'reveal',
-    };
-    this.listItemElement.appendChild(adorner);
-    const onClick = ((() => {
-                       this.nodeShortcut.deferredNode.resolve(
-                           node => {
-                             void Common.Revealer.reveal(node);
-                           },
-                       );
-                     }) as EventListener);
-    adorner.addInteraction(onClick, {
-      isToggle: false,
-      shouldPropagateOnKeydown: false,
-      ariaLabelDefault: i18nString(UIStrings.reveal),
-      ariaLabelActive: i18nString(UIStrings.reveal),
-    });
-    adorner.addEventListener('mousedown', e => e.consume(), false);
-    ElementsPanel.instance().registerAdorner(adorner);
-  }
-
-  get hovered(): boolean {
-    return Boolean(this.hoveredInternal);
-  }
-
-  set hovered(x: boolean) {
-    if (this.hoveredInternal === x) {
-      return;
-    }
-    this.hoveredInternal = x;
-    this.listItemElement.classList.toggle('hovered', x);
-  }
-
-  deferredNode(): SDK.DOMModel.DeferredDOMNode {
-    return this.nodeShortcut.deferredNode;
-  }
-
-  domModel(): SDK.DOMModel.DOMModel {
-    return this.nodeShortcut.deferredNode.domModel();
-  }
-
-  private setLeftIndentOverlay(): void {
-    // We use parent's `--indent` value and add 24px to account for an extra level of indent.
-    let indent = 24;
-    if (this.parent && this.parent instanceof ElementsTreeElement) {
-      const parentIndent = parseFloat(this.parent.listItemElement.style.getPropertyValue('--indent')) || 0;
-      indent += parentIndent;
-    }
-    this.listItemElement.style.setProperty('--indent', indent + 'px');
-  }
-
-  override onattach(): void {
-    this.setLeftIndentOverlay();
-  }
-
-  override onselect(selectedByUser?: boolean): boolean {
-    if (!selectedByUser) {
-      return true;
-    }
-    this.nodeShortcut.deferredNode.highlight();
-    this.nodeShortcut.deferredNode.resolve(resolved.bind(this));
-    function resolved(this: ShortcutTreeElement, node: SDK.DOMModel.DOMNode|null): void {
-      if (node && this.treeOutline instanceof ElementsTreeOutline) {
-        this.treeOutline.selectedDOMNodeInternal = node;
-        this.treeOutline.selectedNodeChanged(false);
-      }
-    }
-    return true;
-  }
-}
 
 export interface MultilineEditorController {
   cancel: () => void;
