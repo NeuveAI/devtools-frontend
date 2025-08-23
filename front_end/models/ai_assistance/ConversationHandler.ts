@@ -50,6 +50,13 @@ export interface ExternalPerformanceInsightsRequestParameters {
   traceModel: Trace.TraceModel.Model;
 }
 
+interface ExternalPerformanceCallTreeRequestParameters {
+  conversationType: ConversationType.PERFORMANCE_CALL_TREE;
+  prompt: string;
+  searchType: Tracing.ExternalRequests.CallTreeSearchType;
+  traceModel: Trace.TraceModel.Model;
+}
+
 const UIStrings = {
   /**
    * @description Notification shown to the user whenever DevTools receives an external request.
@@ -178,7 +185,7 @@ export class ConversationHandler {
    */
   async handleExternalRequest(
       parameters: ExternalStylingRequestParameters|ExternalNetworkRequestParameters|
-      ExternalPerformanceInsightsRequestParameters,
+      ExternalPerformanceInsightsRequestParameters|ExternalPerformanceCallTreeRequestParameters,
       ): Promise<AsyncGenerator<ExternalRequestResponse, ExternalRequestResponse>> {
     try {
       Snackbars.Snackbar.Snackbar.show({message: i18nString(UIStrings.externalRequestReceived)});
@@ -203,6 +210,13 @@ export class ConversationHandler {
           }
           return await this.#handleExternalPerformanceInsightsConversation(
               parameters.prompt, parameters.insightTitle, parameters.traceModel);
+        case ConversationType.PERFORMANCE_CALL_TREE:
+          if (!parameters.searchType) {
+            return this.#generateErrorResponse(
+                'The searchType parameter is required for debugging a Performance Call Tree.');
+          }
+          return await this.#handleExternalPerformanceCallTreeConversation(
+              parameters.prompt, parameters.searchType, parameters.traceModel);
         case ConversationType.NETWORK:
           if (!parameters.requestUrl) {
             return this.#generateErrorResponse('The url is required for debugging a network request.');
@@ -301,6 +315,25 @@ export class ConversationHandler {
     return this.#doExternalConversation({
       conversationType: ConversationType.PERFORMANCE_INSIGHT,
       aiAgent: insightsAgent,
+      prompt,
+      selected: new PerformanceTraceContext(focusOrError.focus),
+    });
+  }
+
+  async #handleExternalPerformanceCallTreeConversation(
+      prompt: string, searchType: Tracing.ExternalRequests.CallTreeSearchType,
+      traceModel: Trace.TraceModel.Model): Promise<AsyncGenerator<ExternalRequestResponse, ExternalRequestResponse>> {
+    const callTreeAgent = this.createAgent(ConversationType.PERFORMANCE_CALL_TREE);
+    const focusOrError = await Tracing.ExternalRequests.getCallTreeAgentFocusToDebug(
+        traceModel, searchType);
+
+    if ('error' in focusOrError) {
+      return this.#generateErrorResponse(focusOrError.error);
+    }
+
+    return this.#doExternalConversation({
+      conversationType: ConversationType.PERFORMANCE_CALL_TREE,
+      aiAgent: callTreeAgent,
       prompt,
       selected: new PerformanceTraceContext(focusOrError.focus),
     });
