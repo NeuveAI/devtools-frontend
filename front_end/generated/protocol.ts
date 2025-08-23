@@ -10044,6 +10044,20 @@ export namespace Network {
   }
 
   /**
+   * Sets Controls for IP Proxy of requests.
+   * Page reload is required before the new behavior will be observed.
+   */
+  export const enum IpProxyStatus {
+    Available = 'Available',
+    FeatureNotEnabled = 'FeatureNotEnabled',
+    MaskedDomainListNotEnabled = 'MaskedDomainListNotEnabled',
+    MaskedDomainListNotPopulated = 'MaskedDomainListNotPopulated',
+    AuthTokensUnavailable = 'AuthTokensUnavailable',
+    Unavailable = 'Unavailable',
+    BypassedByDevTools = 'BypassedByDevTools',
+  }
+
+  /**
    * The reason why request was blocked.
    */
   export const enum CorsError {
@@ -11146,6 +11160,13 @@ export namespace Network {
   export interface LoadNetworkResourceOptions {
     disableCache: boolean;
     includeCredentials: boolean;
+  }
+
+  export interface GetIPProtectionProxyStatusResponse extends ProtocolResponseWithError {
+    /**
+     * Whether IP proxy is available
+     */
+    status: IpProxyStatus;
   }
 
   export interface SetAcceptedEncodingsRequest {
