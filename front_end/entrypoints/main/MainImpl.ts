@@ -54,6 +54,7 @@ import * as Persistence from '../../models/persistence/persistence.js';
 import * as ProjectSettings from '../../models/project_settings/project_settings.js';
 import * as Workspace from '../../models/workspace/workspace.js';
 import * as Snippets from '../../panels/snippets/snippets.js';
+import type * as Tracing from '../../services/tracing/tracing.js';
 import * as Buttons from '../../ui/components/buttons/buttons.js';
 import * as Snackbar from '../../ui/components/snackbars/snackbars.js';
 import * as Components from '../../ui/legacy/components/utils/utils.js';
@@ -1055,6 +1056,9 @@ type ExternalRequestInput = {
   kind: 'PERFORMANCE_ANALYZE_INSIGHT',
   args: {insightTitle: string, prompt: string},
 }|{
+  kind: 'PERFORMANCE_ANALYZE_CALL_TREE',
+  args: {searchType: Tracing.ExternalRequests.CallTreeSearchType, prompt: string},
+}|{
   kind: 'NETWORK_DEBUGGER',
   args: {requestUrl: string, prompt: string},
 };
@@ -1104,6 +1108,18 @@ export async function handleExternalRequestGenerator(input: ExternalRequestInput
         traceModel,
       });
     }
+    case 'PERFORMANCE_ANALYZE_CALL_TREE': {
+      const AiAssistanceModel = await import('../../models/ai_assistance/ai_assistance.js');
+      const TimelinePanel = await import('../../panels/timeline/timeline.js');
+      const traceModel = TimelinePanel.TimelinePanel.TimelinePanel.instance().model;
+      const conversationHandler = AiAssistanceModel.ConversationHandler.instance();
+      return await conversationHandler.handleExternalRequest({
+        conversationType: AiAssistanceModel.ConversationType.PERFORMANCE_CALL_TREE,
+        prompt: input.args.prompt,
+        searchType: input.args.searchType,
+        traceModel,
+      });
+    }
     case 'NETWORK_DEBUGGER': {
       const AiAssistanceModel = await import('../../models/ai_assistance/ai_assistance.js');
       const conversationHandler = await AiAssistanceModel.ConversationHandler.instance();
@@ -1123,15 +1139,6 @@ export async function handleExternalRequestGenerator(input: ExternalRequestInput
       });
     }
   }
-  // eslint-disable-next-line require-yield
-  return (async function*
-          (): AsyncGenerator<AiAssistanceModel.ExternalRequestResponse, AiAssistanceModel.ExternalRequestResponse> {
-            return {
-              type: AiAssistanceModel.ExternalRequestResponseType.ERROR,
-              // @ts-expect-error
-              message: `Debugging with an agent of type '${input.kind}' is not implemented yet.`,
-            };
-          })();
 }
 
 // @ts-expect-error
