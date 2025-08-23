@@ -377,6 +377,17 @@ export class DevToolsMcpServer {
         console.log(`[MCP] No insightId in params:`, params);
       }
     }
+
+    // Check if this is a notification for analyzing a call tree
+    if ('method' in message && message.method === 'calltree/analyze') {
+      console.log(`[MCP] Received calltree/analyze notification:`, message);
+      const params = message.params as any;
+      if (params?.analysisId) {
+        await this.startCallTreeAnalysis(params.analysisId, params.searchType, params.prompt);
+      } else {
+        console.log(`[MCP] No analysisId in params:`, params);
+      }
+    }
   }
 
   // MCP-compatible resource execution method
@@ -482,6 +493,33 @@ export class DevToolsMcpServer {
     });
     console.log(`[MCP] Dispatching mcp-start-insights event for ${insightId}`);
     document.dispatchEvent(event);
+  }
+
+  // Handle call tree analysis request from server
+  async startCallTreeAnalysis(analysisId: string, searchType: 'longest_animation_frame' | 'inp_interaction' = 'longest_animation_frame', prompt: string = ''): Promise<void> {
+    console.log(`[MCP] Starting calltree analysis: ${analysisId}, searchType: ${searchType}`);
+
+    try {
+      const handleExternalRequest = (globalThis as any).handleExternalRequest;
+      if (typeof handleExternalRequest !== 'function') {
+        throw new Error('globalThis.handleExternalRequest is not available');
+      }
+
+      const { response } = await handleExternalRequest({
+        kind: 'PERFORMANCE_ANALYZE_CALL_TREE',
+        args: {
+          searchType,
+          prompt,
+        },
+      });
+
+      console.log(`[MCP] Calltree analysis completed for ${analysisId}, sending result to trpc-server`);
+      await this.sendCallTreeResultToTrpcServer(analysisId, response, false);
+    } catch (error) {
+      console.error(`[MCP] Calltree analysis failed for ${analysisId}:`, error);
+      const message = error instanceof Error ? error.message : String(error);
+      await this.sendCallTreeResultToTrpcServer(analysisId, message, true);
+    }
   }
 
   private insightsResultListenerAdded = false;
@@ -638,6 +676,30 @@ ${result}
       }
     } catch (error) {
       console.error('Error sending insights result to trpc-server:', error);
+    }
+  }
+
+  private async sendCallTreeResultToTrpcServer(analysisId: string, result: string, error?: boolean): Promise<void> {
+    try {
+      const response = await fetch(`${this.trpcServerUrl}/mcp/calltree-result`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          analysisId,
+          result,
+          error: error || false,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error(`Failed to send calltree result to trpc-server: ${response.statusText}`);
+      } else {
+        console.log(`Successfully sent calltree result for ${analysisId} to trpc-server`);
+      }
+    } catch (error) {
+      console.error('Error sending calltree result to trpc-server:', error);
     }
   }
 

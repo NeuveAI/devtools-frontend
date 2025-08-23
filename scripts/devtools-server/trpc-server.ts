@@ -2,6 +2,7 @@
 // Copyright 2025 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { serve } from '@hono/node-server';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -148,6 +149,8 @@ const sessions = new Map<string, Session>();
 
 // Store pending insights requests
 const pendingInsightsRequests = new Map<string, (result: string) => void>();
+// Store pending call tree analysis requests
+const pendingCallTreeRequests = new Map<string, (result: string) => void>();
 
 // Helper function to send notifications only to McpServer sessions
 function sendNotificationToMcpServerSessions(notification: { jsonrpc: '2.0', method: string, params: Record<string, unknown> }): void {
@@ -221,7 +224,7 @@ function getSession(sessionId?: string, clientInfo?: { name: string, version: st
 }
 
 // Handle MCP POST requests
-app.post('/mcp', async c => {
+app.post('/mcp', async (c: any) => {
   try {
     const sessionId = c.req.header('mcp-session-id');
     console.log('Received request with session ID:', sessionId);
@@ -399,6 +402,31 @@ app.post('/mcp', async c => {
                   },
                 },
               },
+              {
+                name: 'calltree_analysis',
+                description: `Analyzes, debugs, and investigates performance problems coming from a specific call tree (e.g. interaction events, long tasks, long animation frames, etc.) from a previously recorded performance trace.
+
+Use this tool to debug specific performance problems that can be identified by analizing a call tree for problems, identify root causes, understand bottlenecks, or diagnose issues detected during a performance recording. Use this when the user asks follow up questions about runtime performance from an existing trace.
+
+For example, if the user asks "debug the why it takes so long to render when I do X", you should use this tool to analyze the "longest_animation_frame" search type for the call tree.`,
+                inputSchema: {
+                  type: 'object',
+                  properties: {
+                    searchType: {
+                      type: 'string',
+                      enum: ['longest_animation_frame', 'inp_interaction'],
+                      description: 'The type of the search to be performed on the trace to find a specific call tree to focus and analyze.',
+                      default: 'longest_animation_frame',
+                    },
+                    prompt: {
+                      type: 'string',
+                      description: 'Detailed description of the analysis task.',
+                      default: '',
+                    },
+                  },
+                  required: ['searchType'],
+                },
+              },
             ],
           },
         };
@@ -485,6 +513,51 @@ app.post('/mcp', async c => {
               }]
             }
           };
+        } else if (toolName === 'calltree_analysis') {
+          const analysisId = `calltree-${Date.now()}`;
+          const searchType = args.searchType || 'longest_animation_frame';
+          const prompt = args.prompt || '';
+
+          console.log(`[TRPC] Starting calltree analysis for ${analysisId}, searchType: ${searchType}`);
+
+          // Notify McpServer sessions via SSE
+          sendNotificationToMcpServerSessions({
+            jsonrpc: '2.0' as const,
+            method: 'calltree/analyze',
+            params: { analysisId, searchType, prompt }
+          });
+
+          console.log(`[TRPC] Sent notification for ${analysisId}, waiting for result...`);
+
+          const calltreeResult = await new Promise<string>(resolve => {
+            const timeout = setTimeout(() => {
+              console.log(`[TRPC] Timeout reached for ${analysisId}, cleaning up`);
+              pendingCallTreeRequests.delete(analysisId);
+              resolve('Timeout: Unable to analyze calltree within expected time');
+            }, 30000);
+
+            const wrappedResolve = (result: string) => {
+              console.log(`[TRPC] Received calltree result for ${analysisId}: ${result.substring(0, 100)}...`);
+              clearTimeout(timeout);
+              resolve(result);
+            };
+
+            pendingCallTreeRequests.set(analysisId, wrappedResolve);
+            console.log(`[TRPC] Stored resolver for ${analysisId}, total pending: ${pendingCallTreeRequests.size}`);
+          });
+
+          console.log(`[TRPC] Final calltree result for ${analysisId}: ${calltreeResult.substring(0, 100)}...`);
+
+          response = {
+            jsonrpc: '2.0' as const,
+            id: requestData.id,
+            result: {
+              content: [{
+                type: 'text',
+                text: calltreeResult,
+              }],
+            },
+          };
         } else {
           response = {
             jsonrpc: '2.0' as const,
@@ -526,7 +599,7 @@ app.post('/mcp', async c => {
 });
 
 // Handle GET requests for SSE (optional - for server-to-client messages)
-app.get('/mcp', c => {
+app.get('/mcp', (c: any) => {
   console.log('GET /mcp request received');
   console.log('Query parameters:', c.req.query());
   console.log('Request headers available');
@@ -631,7 +704,7 @@ app.get('/mcp', c => {
 });
 
 // Handle insights result callback from McpServer
-app.post('/mcp/insights-result', async c => {
+app.post('/mcp/insights-result', async (c: any) => {
   try {
     const { insightId, result, error } = await c.req.json();
 
@@ -657,8 +730,34 @@ app.post('/mcp/insights-result', async c => {
   }
 });
 
+// Handle calltree analysis result callback from McpServer
+app.post('/mcp/calltree-result', async (c: any) => {
+  try {
+    const { analysisId, result, error } = await c.req.json();
+
+    console.log(`[TRPC] Received calltree result for ${analysisId}:`, error ? 'ERROR' : 'SUCCESS');
+    console.log(`[TRPC] Result length: ${result?.length || 0} characters`);
+    console.log(`[TRPC] Pending calltree before: ${Array.from(pendingCallTreeRequests.keys())}`);
+
+    const resolver = pendingCallTreeRequests.get(analysisId);
+    if (resolver) {
+      console.log(`[TRPC] Found resolver for ${analysisId}, calling it...`);
+      resolver(error ? `Error: ${result}` : result);
+      pendingCallTreeRequests.delete(analysisId);
+      console.log(`[TRPC] Resolved and removed ${analysisId}, remaining: ${Array.from(pendingCallTreeRequests.keys())}`);
+    } else {
+      console.log(`[TRPC] No resolver found for ${analysisId}. Available resolvers: ${Array.from(pendingCallTreeRequests.keys())}`);
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error handling calltree result:', error);
+    return c.json({ success: false, error: error instanceof Error ? error.message : String(error) }, 500);
+  }
+});
+
 // Handle session termination
-app.delete('/mcp', c => {
+app.delete('/mcp', (c: any) => {
   const sessionId = c.req.header('mcp-session-id');
 
   if (sessionId && sessions.has(sessionId)) {
@@ -670,7 +769,7 @@ app.delete('/mcp', c => {
 });
 
 // Health check endpoint
-app.get('/ping', c => {
+app.get('/ping', (c: any) => {
   return c.json({
     message: 'pong',
     timestamp: new Date().toISOString(),

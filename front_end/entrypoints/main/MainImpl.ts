@@ -1063,6 +1063,12 @@ type ExternalRequestInput = {
   args: {requestUrl: string, prompt: string},
 };
 
+try {
+  (Common.Settings.moduleSetting('ai-assistance-enabled') as Common.Settings.Setting<boolean>).set(true);
+} catch (e) {
+  console.error('Error setting ai-assistance-enabled', e);
+}
+
 // For backwards-compatibility we iterate over the generator and drop the
 // intermediate results. The final response is transformed to its legacy type.
 // Instead of sending responses of type error, errors are throws.
