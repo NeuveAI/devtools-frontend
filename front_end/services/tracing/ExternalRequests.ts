@@ -97,7 +97,7 @@ export async function getCallTreeAgentFocusToDebug(
   const longestInteractionEvent =
     insights?.model.INPBreakdown
       .longestInteractionEvent;
-  const longestAnimationFrameEvent = parsedTrace.AnimationFrames.animationFrames.sort((a, b) => b.dur - a.dur)[0];
+  const longestAnimationFrameEvent = parsedTrace.Animations.animationFrames.toSorted((a, b) => b.dur - a.dur)[0];
   const event = searchType === CallTreeSearchType.LONGEST_ANIMATION_FRAME ? longestAnimationFrameEvent : longestInteractionEvent;
 
   console.log(`[TIMELINE] longestInteractionEvent: ${!!longestInteractionEvent}`);
