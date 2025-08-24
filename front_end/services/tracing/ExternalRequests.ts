@@ -65,54 +65,75 @@ export const enum CallTreeSearchType {
 }
 
 export async function getCallTreeAgentFocusToDebug(
-    model: Trace.TraceModel.Model, searchType: CallTreeSearchType): Promise<CallTreeResponse> {
-  const parsedTrace = model.parsedTrace();
-  if (!parsedTrace) {
+    model: Trace.TraceModel.Model, searchType: CallTreeSearchType, traceIndex: number): Promise<CallTreeResponse> {
+  const parsedTrace = model.parsedTrace(traceIndex);
+  const latestInsights = model.traceInsights(traceIndex);
+  if (!parsedTrace || !latestInsights) {
     return {
       error: 'No trace has been recorded, so we cannot analyze any insights',
     };
   }
 
-  let event: Trace.Types.Events.Event|null = null;
-
-  switch (searchType) {
-    case CallTreeSearchType.LONGEST_ANIMATION_FRAME: {
-      event = parsedTrace.AnimationFrames.animationFrames.sort((a, b) => {
-        return b.dur - a.dur;
-      })[0];
-      break;
-    }
-    case CallTreeSearchType.INP_INTERACTION: {
-      event = parsedTrace.UserInteractions.longestInteractionEvent;
-      break;
-    }
+  if (searchType !== CallTreeSearchType.LONGEST_ANIMATION_FRAME && searchType !== CallTreeSearchType.INP_INTERACTION) {
+    return { error: 'Invalid insight type' };
   }
 
+  console.log(`[TIMELINE] onMcpInsights: parsedTrace=${!!parsedTrace}, latestInsights=${!!latestInsights}`);
+
+  if (!parsedTrace || !latestInsights) {
+    console.error('[TIMELINE] Missing trace data - no parsed trace or insights sets available');
+    return { error: 'Missing trace data - no parsed trace or insights sets available' };
+  }
+
+  console.log(`[TIMELINE] traceInsightsSets size: ${latestInsights.size}`);
+  if (latestInsights.size === 0) {
+    console.error('[TIMELINE] No insights sets available in traceInsightsSets');
+    return { error: 'No insights sets available in latestInsights' };
+  }
+
+  const insights = latestInsights.get(Array.from(latestInsights.entries())[0][0]);
+  console.log(`[TIMELINE] insights available: ${!!insights}`);
+
+  const longestInteractionEvent =
+    insights?.model.INPBreakdown
+      .longestInteractionEvent;
+  const longestAnimationFrameEvent = parsedTrace.AnimationFrames.animationFrames.sort((a, b) => b.dur - a.dur)[0];
+  const event = searchType === CallTreeSearchType.LONGEST_ANIMATION_FRAME ? longestAnimationFrameEvent : longestInteractionEvent;
+
+  console.log(`[TIMELINE] longestInteractionEvent: ${!!longestInteractionEvent}`);
   if (!event) {
-    return {
-      error: `Could not find any event to debug for ${searchType}`,
-    };
+    console.error('[TIMELINE] No event found');
+    return { error: `No event found for ${searchType}. AnimationFrames found: ${parsedTrace.AnimationFrames.animationFrames.length}` };
   }
 
-  const callTree = TimelineUtils.AICallTree.AICallTree.fromTimeOnThread({
+  const timerangeCallTree = TimelineUtils.AICallTree.AICallTree.fromTimeOnThread({
     thread: {
       pid: event.pid,
       tid: event.tid,
     },
     bounds: {
       min: event.ts,
-      max: Trace.Types.Timing.Micro(event.ts + (event.dur ?? 0)),
-      range: Trace.Types.Timing.Micro(event.ts + (event.dur ?? 0)),
+      max: (event.ts + event.dur) as Trace.Types.Timing.Micro,
+      range: (event.ts + event.dur) as Trace.Types.Timing.Micro,
     },
     parsedTrace,
   });
 
-  if (!callTree) {
-    return {
-      error: 'Could not find any call tree for the longest animation frame',
-    };
+  if (!timerangeCallTree?.rootNode.event) {
+    console.error('[TIMELINE] Failed to create timerange call tree');
+    return { error: 'Failed to create timerange call tree' };
   }
 
-  const focus = TimelineUtils.AIContext.AgentFocus.fromCallTree(callTree);
+  const aiCallTree = TimelineUtils.AICallTree.AICallTree.fromEvent(
+    timerangeCallTree.rootNode.event,
+    parsedTrace,
+  );
+
+  if (!aiCallTree) {
+    console.error('[TIMELINE] Failed to create AI call tree');
+    return { error: 'Failed to create AI call tree' };
+  }
+
+  const focus = TimelineUtils.AIContext.AgentFocus.fromCallTree(aiCallTree);
   return {focus};
 }

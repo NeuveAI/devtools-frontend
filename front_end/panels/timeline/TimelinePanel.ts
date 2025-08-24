@@ -2039,6 +2039,14 @@ export class TimelinePanel extends Common.ObjectWrapper.eventMixin<EventTypes, t
     }, 20000);
   }
 
+  getTraceIndex(): number {
+    if (this.#viewMode.mode !== 'VIEWING_TRACE') {
+      return -1;
+    }
+
+    return this.#viewMode.traceIndex;
+  }
+
   getTraceData(): {
     parsedTrace: Trace.Handlers.Types.ParsedTrace|null,
     traceInsightsSets: Trace.Insights.Types.TraceInsightSets|null,

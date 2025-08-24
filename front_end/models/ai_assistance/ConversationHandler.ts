@@ -55,6 +55,7 @@ interface ExternalPerformanceCallTreeRequestParameters {
   prompt: string;
   searchType: Tracing.ExternalRequests.CallTreeSearchType;
   traceModel: Trace.TraceModel.Model;
+  traceIndex: number;
 }
 
 const UIStrings = {
@@ -216,7 +217,7 @@ export class ConversationHandler {
                 'The searchType parameter is required for debugging a Performance Call Tree.');
           }
           return await this.#handleExternalPerformanceCallTreeConversation(
-              parameters.prompt, parameters.searchType, parameters.traceModel);
+              parameters.prompt, parameters.searchType, parameters.traceModel, parameters.traceIndex);
         case ConversationType.NETWORK:
           if (!parameters.requestUrl) {
             return this.#generateErrorResponse('The url is required for debugging a network request.');
@@ -322,10 +323,10 @@ export class ConversationHandler {
 
   async #handleExternalPerformanceCallTreeConversation(
       prompt: string, searchType: Tracing.ExternalRequests.CallTreeSearchType,
-      traceModel: Trace.TraceModel.Model): Promise<AsyncGenerator<ExternalRequestResponse, ExternalRequestResponse>> {
+      traceModel: Trace.TraceModel.Model, traceIndex: number): Promise<AsyncGenerator<ExternalRequestResponse, ExternalRequestResponse>> {
     const callTreeAgent = this.createAgent(ConversationType.PERFORMANCE_CALL_TREE);
     const focusOrError = await Tracing.ExternalRequests.getCallTreeAgentFocusToDebug(
-        traceModel, searchType);
+        traceModel, searchType, traceIndex);
 
     if ('error' in focusOrError) {
       return this.#generateErrorResponse(focusOrError.error);
