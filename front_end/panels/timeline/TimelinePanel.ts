@@ -2115,7 +2115,7 @@ export class TimelinePanel extends Common.ObjectWrapper.eventMixin<EventTypes, t
     const longestInteractionEvent =
 			insights?.model.INPBreakdown
 				.longestInteractionEvent;
-    const longestAnimationFrameEvent = parsedTrace.AnimationFrames.animationFrames.sort((a, b) => b.dur - a.dur)[0];
+    const longestAnimationFrameEvent = parsedTrace.Animations.animationFrames.toSorted((a, b) => b.dur - a.dur)[0];
     const event = insightType === 'interaction' ? longestInteractionEvent : longestAnimationFrameEvent;
 
     console.log(`[TIMELINE] longestInteractionEvent: ${!!longestInteractionEvent}`);
