@@ -1063,12 +1063,6 @@ type ExternalRequestInput = {
   args: {requestUrl: string, prompt: string},
 };
 
-try {
-  (Common.Settings.moduleSetting('ai-assistance-enabled') as Common.Settings.Setting<boolean>).set(true);
-} catch (e) {
-  console.error('Error setting ai-assistance-enabled', e);
-}
-
 // For backwards-compatibility we iterate over the generator and drop the
 // intermediate results. The final response is transformed to its legacy type.
 // Instead of sending responses of type error, errors are throws.
@@ -1124,6 +1118,7 @@ export async function handleExternalRequestGenerator(input: ExternalRequestInput
         prompt: input.args.prompt,
         searchType: input.args.searchType,
         traceModel,
+        traceIndex: TimelinePanel.TimelinePanel.TimelinePanel.instance().getTraceIndex(),
       });
     }
     case 'NETWORK_DEBUGGER': {
