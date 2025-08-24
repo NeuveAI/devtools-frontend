@@ -621,6 +621,54 @@ export interface Animation extends Event {
   ph: Phase.ASYNC_NESTABLE_START|Phase.ASYNC_NESTABLE_END|Phase.ASYNC_NESTABLE_INSTANT;
 }
 
+export interface TraceEventAnimationFramePaintGroupingEvent extends Event {
+  name: Name.ANIMATION_FRAME_STYLE_AND_LAYOUT |
+        Name.ANIMATION_FRAME_RENDER;
+  id2?: {
+    local?: string,
+  };
+  ph: Phase.ASYNC_NESTABLE_START|Phase.ASYNC_NESTABLE_END;
+}
+export interface TraceEventAnimationFrameGroupingEvent extends Event {
+  args?: Args&{
+    ['animation_frame_timing_info']: ArgsData & {
+      ['blocking_duration_ms']?: number,
+      ['duration_ms']?: number,
+      ['num_scripts']?: number,
+    },
+  };
+  name: Name.ANIMATION_FRAME;
+  id2?: {
+    local?: string,
+  };
+  ph: Phase.ASYNC_NESTABLE_START|Phase.ASYNC_NESTABLE_END;
+}
+export interface TraceEventAnimationFrameScriptGroupingEvent extends Event {
+  args?: Args&{
+    ['animation_frame_script_timing_info']: ArgsData & {
+      ['class_like_name']?: string,
+      ['invoker_type']?: string,
+      ['layout_duration_ms']?: number,
+      ['pause_duration_ms']?: number,
+      ['property_like_name']?: string,
+      ['source_location_char_position']?: number,
+      ['style_duration_ms']?: number,
+    },
+  };
+  name: Name.ANIMATION_FRAME_SCRIPT_EXECUTE | Name.ANIMATION_FRAME_SCRIPT_COMPILE;
+  id2?: {
+    local?: string,
+  };
+  ph: Phase.ASYNC_NESTABLE_START|Phase.ASYNC_NESTABLE_END;
+}
+export interface TraceEventAnimationFrameInstantEvent extends Event {
+  name: Name.ANIMATION_FRAME_PRESENTATION |
+        Name.ANIMATION_FRAME_FIRST_UI_EVENT;
+  id2?: {
+    local?: string,
+  };
+  ph: Phase.ASYNC_NESTABLE_INSTANT;
+}
 // Metadata events.
 
 export interface Metadata extends Event {
@@ -1677,6 +1725,13 @@ export type SyntheticConsoleTimingPair = SyntheticEventPair<ConsoleTime>;
 
 export type SyntheticAnimationPair = SyntheticEventPair<Animation>;
 
+export type SyntheticExtendedAnimationFramePair = SyntheticEventPair<TraceEventAnimationFrameGroupingEvent> & {
+  phases: Array<
+  TraceEventAnimationFramePaintGroupingEvent |
+  TraceEventAnimationFrameScriptGroupingEvent |
+  TraceEventAnimationFrameInstantEvent>,
+};
+
 export interface SyntheticInteractionPair extends SyntheticEventPair<EventTimingBeginOrEnd> {
   // InteractionID and type are available within the beginEvent's data, but we
   // put them on the top level for ease of access.
@@ -2149,6 +2204,22 @@ export function isSyntheticAnimation(event: Event): event is SyntheticAnimationP
     return false;
   }
   return 'beginEvent' in data && 'endEvent' in data;
+}
+
+export function isTraceEventAnimationFrame(traceEventData: Event): traceEventData is TraceEventAnimationFrameGroupingEvent {
+  return traceEventData.name === Name.ANIMATION_FRAME;
+}
+
+export function isTraceEventAnimationFrameScript(traceEventData: Event): traceEventData is TraceEventAnimationFrameScriptGroupingEvent {
+  return traceEventData.name === Name.ANIMATION_FRAME_SCRIPT_COMPILE || traceEventData.name === Name.ANIMATION_FRAME_SCRIPT_EXECUTE;
+}
+
+export function isTraceEventAnimationFramePaint(traceEventData: Event): traceEventData is TraceEventAnimationFramePaintGroupingEvent {
+  return traceEventData.name === Name.ANIMATION_FRAME_STYLE_AND_LAYOUT || traceEventData.name === Name.ANIMATION_FRAME_RENDER;
+}
+
+export function isTraceEventAnimationFrameInstant(traceEventData: Event): traceEventData is TraceEventAnimationFrameInstantEvent {
+  return traceEventData.name === Name.ANIMATION_FRAME_FIRST_UI_EVENT || traceEventData.name === Name.ANIMATION_FRAME_PRESENTATION;
 }
 
 export function isLayoutShift(
@@ -3110,8 +3181,14 @@ export const enum Name {
   BEGIN_REMOTE_FONT_LOAD = 'BeginRemoteFontLoad',
   REMOTE_FONT_LOADED = 'RemoteFontLoaded',
 
+  /* Animation Frame */
   ANIMATION_FRAME = 'AnimationFrame',
   ANIMATION_FRAME_PRESENTATION = 'AnimationFrame::Presentation',
+  ANIMATION_FRAME_FIRST_UI_EVENT = 'AnimationFrame::FirstUIEvent',
+  ANIMATION_FRAME_STYLE_AND_LAYOUT = 'AnimationFrame::StyleAndLayout',
+  ANIMATION_FRAME_RENDER = 'AnimationFrame::Render',
+  ANIMATION_FRAME_SCRIPT_COMPILE = 'AnimationFrame::Script::Compile',
+  ANIMATION_FRAME_SCRIPT_EXECUTE = 'AnimationFrame::Script::Execute',
 
   SYNTHETIC_NETWORK_REQUEST = 'SyntheticNetworkRequest',
   USER_TIMING_MEASURE = 'UserTiming::Measure',
