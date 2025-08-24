@@ -97,13 +97,14 @@ export async function getCallTreeAgentFocusToDebug(
   const longestInteractionEvent =
     insights?.model.INPBreakdown
       .longestInteractionEvent;
-  const longestAnimationFrameEvent = parsedTrace.Animations.animationFrames.toSorted((a, b) => b.dur - a.dur)[0];
+  const sortedAnimationFrames = parsedTrace.Animations.animationFrames.toSorted((a, b) => b.dur - a.dur);
+  const longestAnimationFrameEvent = sortedAnimationFrames[0];
   const event = searchType === CallTreeSearchType.LONGEST_ANIMATION_FRAME ? longestAnimationFrameEvent : longestInteractionEvent;
 
   console.log(`[TIMELINE] longestInteractionEvent: ${!!longestInteractionEvent}`);
   if (!event) {
     console.error('[TIMELINE] No event found');
-    return { error: `No event found for ${searchType}. AnimationFrames found: ${parsedTrace.AnimationFrames.animationFrames.length}` };
+    return { error: `No event found for ${searchType}.` };
   }
 
   const timerangeCallTree = TimelineUtils.AICallTree.AICallTree.fromTimeOnThread({
@@ -121,7 +122,7 @@ export async function getCallTreeAgentFocusToDebug(
 
   if (!timerangeCallTree?.rootNode.event) {
     console.error('[TIMELINE] Failed to create timerange call tree');
-    return { error: 'Failed to create timerange call tree' };
+    return { error: `Failed to create timerange call tree.` };
   }
 
   const aiCallTree = TimelineUtils.AICallTree.AICallTree.fromEvent(
